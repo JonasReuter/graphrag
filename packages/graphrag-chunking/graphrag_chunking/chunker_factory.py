@@ -70,6 +70,14 @@ def create_chunker(
                 from graphrag_chunking.sentence_chunker import SentenceChunker
 
                 register_chunker(ChunkerType.Sentence, SentenceChunker)
+            case ChunkerType.SemanticMarkdown:
+                from graphrag_chunking.semantic_markdown_chunker import (
+                    SemanticMarkdownChunker,
+                )
+
+                register_chunker(
+                    ChunkerType.SemanticMarkdown, SemanticMarkdownChunker
+                )
             case _:
                 msg = f"ChunkingConfig.strategy '{chunker_strategy}' is not registered in the ChunkerFactory. Registered types: {', '.join(chunker_factory.keys())}."
                 raise ValueError(msg)
