@@ -87,6 +87,10 @@ def create_vector_store(
                 from graphrag_vectors.cosmosdb import CosmosDBVectorStore
 
                 register_vector_store(VectorStoreType.CosmosDB, CosmosDBVectorStore)
+            case VectorStoreType.ArangoDB:
+                from graphrag_vectors.arangodb import ArangoDBVectorStore
+
+                register_vector_store(VectorStoreType.ArangoDB, ArangoDBVectorStore)
             case _:
                 msg = f"Vector store type '{strategy}' is not registered in the VectorStoreFactory. Registered types: {', '.join(vector_store_factory.keys())}."
                 raise ValueError(msg)
