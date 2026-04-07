@@ -330,11 +330,48 @@ class UpdateOutputStorageDefaults(StorageDefaults):
 
 
 @dataclass
+class EntityResolutionDefaults:
+    """Default values for entity resolution."""
+
+    enabled: bool = False
+    completion_model_id: str = DEFAULT_COMPLETION_MODEL_ID
+    embedding_model_id: str = DEFAULT_EMBEDDING_MODEL_ID
+    model_instance_name: str = "entity_resolution"
+    similarity_threshold: float = 0.92
+    top_k: int = 10
+    prompt: None = None
+
+
+@dataclass
 class VectorStoreDefaults:
     """Default values for vector stores."""
 
     type: ClassVar[str] = VectorStoreType.LanceDB.value
     db_uri: str = str(Path(DEFAULT_OUTPUT_BASE_DIR) / "lancedb")
+
+
+@dataclass
+class EvidenceDefaults:
+    """Default values for evidence extraction and verification."""
+
+    enabled: bool = False
+    capture_source_spans: bool = True
+    capture_confidence: bool = True
+    prompt: None = None
+    verification_enabled: bool = False
+    verification_model_id: str = DEFAULT_COMPLETION_MODEL_ID
+    verification_model_instance_name: str = "verify_evidence"
+    cross_doc_similarity_threshold: float = 0.6
+    confidence_weights: dict = field(
+        default_factory=lambda: {
+            "extraction": 0.3,
+            "source_agreement": 0.3,
+            "cross_doc": 0.25,
+            "contradiction_penalty": 0.15,
+        }
+    )
+    quality_metrics_enabled: bool = True
+    low_confidence_threshold: float = 0.3
 
 
 @dataclass
@@ -368,7 +405,11 @@ class GraphRagConfigDefaults:
     community_reports: CommunityReportDefaults = field(
         default_factory=CommunityReportDefaults
     )
+    entity_resolution: EntityResolutionDefaults = field(
+        default_factory=EntityResolutionDefaults
+    )
     extract_claims: ExtractClaimsDefaults = field(default_factory=ExtractClaimsDefaults)
+    evidence: EvidenceDefaults = field(default_factory=EvidenceDefaults)
     prune_graph: PruneGraphDefaults = field(default_factory=PruneGraphDefaults)
     cluster_graph: ClusterGraphDefaults = field(default_factory=ClusterGraphDefaults)
     local_search: LocalSearchDefaults = field(default_factory=LocalSearchDefaults)

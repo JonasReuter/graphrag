@@ -48,6 +48,18 @@ from .load_update_documents import (
 from .prune_graph import (
     run_workflow as run_prune_graph,
 )
+from .resolve_entities import (
+    run_workflow as run_resolve_entities,
+)
+from .compute_confidence import (
+    run_workflow as run_compute_confidence,
+)
+from .compute_quality_metrics import (
+    run_workflow as run_compute_quality_metrics,
+)
+from .verify_evidence import (
+    run_workflow as run_verify_evidence,
+)
 from .update_clean_state import (
     run_workflow as run_update_clean_state,
 )
@@ -89,6 +101,10 @@ PipelineFactory.register_all({  # noqa: RUF067
     "finalize_graph": run_finalize_graph,
     "generate_text_embeddings": run_generate_text_embeddings,
     "prune_graph": run_prune_graph,
+    "resolve_entities": run_resolve_entities,
+    "compute_confidence": run_compute_confidence,
+    "compute_quality_metrics": run_compute_quality_metrics,
+    "verify_evidence": run_verify_evidence,
     "update_final_documents": run_update_final_documents,
     "update_text_embeddings": run_update_text_embeddings,
     "update_community_reports": run_update_community_reports,
