@@ -13,6 +13,7 @@ from graphrag_vectors import VectorStore
 from graphrag.data_model.community_report import CommunityReport
 from graphrag.data_model.covariate import Covariate
 from graphrag.data_model.entity import Entity
+from graphrag.data_model.evidence import Evidence
 from graphrag.data_model.relationship import Relationship
 from graphrag.data_model.text_unit import TextUnit
 from graphrag.query.context_builder.builders import ContextBuilderResult
@@ -26,6 +27,7 @@ from graphrag.query.context_builder.entity_extraction import (
     EntityVectorStoreKey,
     map_query_to_entities,
 )
+from graphrag.query.context_builder.evidence_context import build_evidence_context
 from graphrag.query.context_builder.local_context import (
     build_covariates_context,
     build_entity_context,
@@ -61,6 +63,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
         community_reports: list[CommunityReport] | None = None,
         relationships: list[Relationship] | None = None,
         covariates: dict[str, list[Covariate]] | None = None,
+        evidence: list[Evidence] | None = None,
         tokenizer: Tokenizer | None = None,
         embedding_vectorstore_key: str = EntityVectorStoreKey.ID,
     ):
@@ -72,6 +75,8 @@ class LocalSearchMixedContext(LocalContextBuilder):
             covariates = {}
         if text_units is None:
             text_units = []
+        if evidence is None:
+            evidence = []
         self.entities = {entity.id: entity for entity in entities}
         self.community_reports = {
             community.community_id: community for community in community_reports
@@ -81,6 +86,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
             relationship.id: relationship for relationship in relationships
         }
         self.covariates = covariates
+        self.evidence = evidence
         self.entity_text_embeddings = entity_text_embeddings
         self.text_embedder = text_embedder
         self.tokenizer = tokenizer or get_tokenizer()
@@ -97,6 +103,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
         max_context_tokens: int = 8000,
         text_unit_prop: float = 0.5,
         community_prop: float = 0.25,
+        evidence_prop: float = 0.0,
         top_k_mapped_entities: int = 10,
         top_k_relationships: int = 10,
         include_community_rank: bool = False,
@@ -120,9 +127,9 @@ class LocalSearchMixedContext(LocalContextBuilder):
             include_entity_names = []
         if exclude_entity_names is None:
             exclude_entity_names = []
-        if community_prop + text_unit_prop > 1:
+        if community_prop + text_unit_prop + evidence_prop > 1:
             value_error = (
-                "The sum of community_prop and text_unit_prop should not exceed 1."
+                "The sum of community_prop, text_unit_prop and evidence_prop should not exceed 1."
             )
             raise ValueError(value_error)
 
@@ -186,7 +193,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
             final_context_data = {**final_context_data, **community_context_data}
 
         # build local (i.e. entity-relationship-covariate) context
-        local_prop = 1 - community_prop - text_unit_prop
+        local_prop = 1 - community_prop - text_unit_prop - evidence_prop
         local_tokens = max(int(max_context_tokens * local_prop), 0)
         local_context, local_context_data = self._build_local_context(
             selected_entities=selected_entities,
@@ -213,6 +220,21 @@ class LocalSearchMixedContext(LocalContextBuilder):
         if text_unit_context.strip() != "":
             final_context.append(text_unit_context)
             final_context_data = {**final_context_data, **text_unit_context_data}
+
+        # build evidence context (only when evidence data is available and evidence_prop > 0)
+        if self.evidence and evidence_prop > 0:
+            evidence_tokens = max(int(max_context_tokens * evidence_prop), 0)
+            evidence_context, evidence_context_data = build_evidence_context(
+                selected_entities=selected_entities,
+                evidence=self.evidence,
+                relationships=list(self.relationships.values()),
+                tokenizer=self.tokenizer,
+                max_context_tokens=evidence_tokens,
+                column_delimiter=column_delimiter,
+            )
+            if evidence_context.strip() != "":
+                final_context.append(evidence_context)
+                final_context_data = {**final_context_data, **{"evidence": evidence_context_data}}
 
         return ContextBuilderResult(
             context_chunks="\n\n".join(final_context),
