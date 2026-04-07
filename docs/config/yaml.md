@@ -173,13 +173,39 @@ Where to put all vectors for the system. Configured for lancedb by default. This
 
 #### Fields
 
-- `type` **lancedb|azure_ai_search|cosmosdb** - Type of vector store. Default=`lancedb`
+- `type` **lancedb|azure_ai_search|cosmosdb|arangodb** - Type of vector store. Default=`lancedb`
 - `db_uri` **str** (lancedb only) - The database uri. Default=`storage.base_dir/lancedb`
-- `url` **str** (blob/cosmosdb only) - Database / AI Search to be used.
+- `url` **str** (azure_ai_search/cosmosdb/arangodb) - Database / AI Search endpoint URL.
 - `api_key` **str** (optional - AI Search only) - The AI Search api key to use.
 - `audience` **str** (AI Search only) - Audience for managed identity token if managed identity authentication is used.
 - `connection_string` **str** - (cosmosdb only) The Azure Storage connection string.
 - `database_name` **str** - (cosmosdb only) Name of the database.
+- `username` **str** (arangodb only) - ArangoDB username. Default=`root`
+- `password` **str** (arangodb only) - ArangoDB password. Default=`""` (passwordless)
+- `db_name` **str** (arangodb only) - Name of the ArangoDB database. Default=`graphrag`
+
+**ArangoDB** requires ArangoDB 3.12+ with vector search enabled. Install the optional dependency with:
+```bash
+pip install "graphrag-vectors[arangodb]"
+# or when using uv:
+uv add "graphrag-vectors[arangodb]"
+```
+
+Start a local instance for development:
+```bash
+docker compose up -d   # uses the docker-compose.yml in the repo root
+# Web UI: http://localhost:8529
+```
+
+Example configuration:
+```yaml
+vector_store:
+  type: arangodb
+  url: "http://localhost:8529"
+  username: root
+  password: ""
+  db_name: graphrag
+```
 
 - `index_schema` **dict[str, dict[str, str]]** (optional) - Enables customization for each of your embeddings.
   - `<supported_embedding>`:
@@ -303,6 +329,37 @@ These are the settings used for Leiden hierarchical clustering of the graph to c
 - `use_lcc` **bool** - Whether to only use the largest connected component.
 - `seed` **int** - A randomization seed to provide if consistent run-to-run results are desired. We do provide a default in order to guarantee clustering stability.
 
+### entity_resolution
+
+Embedding-based entity deduplication that runs after graph extraction. Entities extracted from different text chunks (e.g. "SEBASTIAN WETZ", "HERR WETZ", "SEBASTIAN WETZ VON ME-MESSYSTEME GMBH") are compared by cosine similarity of their embeddings. Candidates above the threshold are confirmed by an LLM before merging. Resolved entity embeddings are stored persistently in the configured vector store so that incremental indexing runs compare new entities against the full historical entity set.
+
+**Disabled by default** — enable with `entity_resolution.enabled: true`.
+
+#### Fields
+
+- `enabled` **bool** - Whether to run entity resolution. Default=`false`
+- `completion_model_id` **str** - Model to use for LLM merge confirmation.
+- `embedding_model_id` **str** - Model to use for generating entity embeddings.
+- `model_instance_name` **str** - Cache partition name. Default=`"entity_resolution"`
+- `similarity_threshold` **float** - Minimum cosine similarity to consider two entities as merge candidates. Default=`0.92`
+- `top_k` **int** - Number of nearest neighbours retrieved per entity from the vector store. Default=`10`
+- `prompt` **str|None** - Path to a custom merge-confirmation prompt file. Uses built-in prompt if not set.
+
+#### Example
+
+```yaml
+entity_resolution:
+  enabled: true
+  similarity_threshold: 0.92
+  top_k: 10
+  # Uses the same vector_store backend configured above.
+  # For a dedicated resolution store, override here:
+  # vector_store:
+  #   type: arangodb
+  #   url: "http://localhost:8529"
+  #   db_name: graphrag_resolution
+```
+
 ### extract_claims
 
 #### Fields
@@ -313,6 +370,45 @@ These are the settings used for Leiden hierarchical clustering of the graph to c
 - `prompt` **str** - The prompt file to use.
 - `description` **str** - Describes the types of claims we want to extract.
 - `max_gleanings` **int** - The maximum number of gleaning cycles to use.
+
+### evidence
+
+Evidence-based quality system that enriches every extracted entity and relationship with provenance metadata (source quote, confidence, completeness), then optionally verifies each extraction against the original text via LLM. Adds three new pipeline workflows: `verify_evidence`, `compute_confidence`, and `compute_quality_metrics`.
+
+**Disabled by default** — enable with `evidence.enabled: true`.
+
+#### Fields
+
+- `enabled` **bool** - Whether to capture evidence metadata (source spans, confidence, completeness) during graph extraction. Uses an extended prompt that adds ~20-40 tokens per extraction. Default=`false`
+- `capture_source_spans` **bool** - Whether to extract exact source text quotes per entity/relationship. Default=`true`
+- `capture_confidence` **bool** - Whether to extract LLM self-assessed confidence scores (0.0–1.0). Default=`true`
+- `prompt` **str|None** - Path to a custom evidence-enhanced extraction prompt. Uses built-in prompt if not set. Default=`null`
+- `verification_enabled` **bool** - Whether to run the post-extraction LLM verification workflow. Each text unit becomes one batched LLM call verifying all claims extracted from it. Default=`false`
+- `verification_model_id` **str** - Model to use for evidence verification. Default=`"default_completion_model"`
+- `verification_model_instance_name` **str** - Cache partition name for verification calls. Default=`"verify_evidence"`
+- `cross_doc_similarity_threshold` **float** - Embedding similarity below which descriptions from different documents are flagged as potential contradictions. Default=`0.6`
+- `confidence_weights` **dict** - Weights for the multi-factor confidence formula: `extraction`, `source_agreement`, `cross_doc`, `contradiction_penalty`. Default=`{extraction: 0.3, source_agreement: 0.3, cross_doc: 0.25, contradiction_penalty: 0.15}`
+- `quality_metrics_enabled` **bool** - Whether to compute quality metrics at the end of the pipeline. Default=`true`
+- `low_confidence_threshold` **float** - Confidence score below which entities/relationships are flagged in quality metrics. Default=`0.3`
+
+#### Output Tables
+
+| Table | Description |
+|-------|-------------|
+| `evidence` | One row per extraction observation: subject_type, subject_id, text_unit_id, source_span, extraction_confidence, completeness_status, verification_status |
+| `contradictions` | Cross-document conflicts detected during confidence scoring |
+| `quality_metrics` | Single-row summary: % without evidence, avg confidence, confidence percentiles, % contradicted |
+| `quality_details` | Per-entity/relationship: confidence, evidence_count, source_count, is_partial |
+
+#### Example
+
+```yaml
+evidence:
+  enabled: true
+  verification_enabled: true  # ~1 LLM call per text unit
+  quality_metrics_enabled: true
+  low_confidence_threshold: 0.3
+```
 
 ### community_reports
 
