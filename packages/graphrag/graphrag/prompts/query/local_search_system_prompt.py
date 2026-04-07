@@ -60,6 +60,14 @@ where 15, 16, 1, 5, 7, 23, 2, 7, 34, 46, and 64 represent the id (not the index)
 
 Do not include information where the supporting evidence for it is not provided.
 
+If an Evidence table is present in the data:
+- Prefer citing Evidence records over general entity or relationship records when the evidence directly supports a claim.
+- When citing evidence, include the source_quote field as a brief inline quote if it strengthens the answer.
+- If evidence has status "confirmed", you may state the claim with confidence.
+- If evidence has status "weakened" or "insufficient", qualify the claim appropriately (e.g. "reportedly", "according to some sources").
+- Do not present claims supported only by "refuted" evidence as facts.
+- Format evidence citations as: [Data: Evidence (record ids)]
+
 
 ---Target response length and format---
 
