@@ -1277,6 +1277,11 @@ dependencies = [
     { name = "pydantic" },
 ]
 
+[package.optional-dependencies]
+arangodb = [
+    { name = "python-arango" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "azure-core", specifier = "~=1.32" },
@@ -1288,7 +1293,9 @@ requires-dist = [
     { name = "numpy", specifier = "~=2.1" },
     { name = "pyarrow", specifier = "~=22.0" },
     { name = "pydantic", specifier = "~=2.10" },
+    { name = "python-arango", marker = "extra == 'arangodb'", specifier = ">=7.10,<9" },
 ]
+provides-extras = ["arangodb"]
 
 [[package]]
 name = "graspologic-native"
@@ -3249,6 +3256,22 @@ psutil = [
 ]
 
 [[package]]
+name = "python-arango"
+version = "8.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pyjwt" },
+    { name = "requests" },
+    { name = "requests-toolbelt" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/7a/e5a09446f8e0ca69269bbb5ddefcdfbdcfc8cfb019de382f70e4ca899170/python_arango-8.3.1.tar.gz", hash = "sha256:38d3c1f5173c99fe3c17b386963d441c96b0d38dc111353eebddbf9088459cdd", size = 154810, upload-time = "2026-03-23T06:01:11.472Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/78/e60b1b8bc8d78908c849dd320d683be3d92bf3eb7f3396a7ffd53ba9ea71/python_arango-8.3.1-py3-none-any.whl", hash = "sha256:964012b3a239bddaa6ca9851659bf74817128fdeab6fcb6e5abef0f6b817a536", size = 116245, upload-time = "2026-03-23T06:01:10.072Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -3499,6 +3522,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c9/74/b3ff8e6c8446842c3f5c837e9c3dfcfe2018ea6ecef224c710c85ef728f4/requests-2.32.5.tar.gz", hash = "sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf", size = 134517, upload-time = "2025-08-18T20:46:02.573Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl", hash = "sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6", size = 64738, upload-time = "2025-08-18T20:46:00.542Z" },
+]
+
+[[package]]
+name = "requests-toolbelt"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl", hash = "sha256:cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06", size = 54481, upload-time = "2023-05-01T04:11:28.427Z" },
 ]
 
 [[package]]
