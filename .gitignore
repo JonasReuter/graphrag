@@ -24,6 +24,7 @@ venv/
 .tmp
 packages/graphrag-llm/notebooks/metrics
 packages/graphrag-llm/notebooks/cache
+.claude
 
 .env
 build.zip
@@ -67,3 +68,6 @@ packages/*/LICENSE
 # Notebooks outputs
 packages/graphrag-*/example_notebooks/**/output
 packages/graphrag-*/example_notebooks/**/cache
+
+# testdata
+testdata_run
