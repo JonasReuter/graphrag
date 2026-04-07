@@ -11,3 +11,4 @@ class ChunkerType(StrEnum):
 
     Tokens = "tokens"
     Sentence = "sentence"
+    SemanticMarkdown = "semantic_markdown"
