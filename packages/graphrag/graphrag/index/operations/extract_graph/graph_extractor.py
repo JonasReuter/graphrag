@@ -57,9 +57,13 @@ class GraphExtractor:
         self._on_error = on_error or (lambda _e, _s, _d: None)
 
     async def __call__(
-        self, text: str, entity_types: list[str], source_id: str
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Extract entities and relationships from the supplied text."""
+        self,
+        text: str,
+        entity_types: list[str],
+        source_id: str,
+        extract_evidence: bool = False,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Extract entities, relationships, and optionally evidence from the supplied text."""
         try:
             # Invoke the entity extraction
             result = await self._process_document(text, entity_types)
@@ -73,13 +77,18 @@ class GraphExtractor:
                     "text": text,
                 },
             )
-            return _empty_entities_df(), _empty_relationships_df()
+            return (
+                _empty_entities_df(),
+                _empty_relationships_df(),
+                _empty_evidence_df(),
+            )
 
         return self._process_result(
             result,
             source_id,
             TUPLE_DELIMITER,
             RECORD_DELIMITER,
+            extract_evidence=extract_evidence,
         )
 
     async def _process_document(self, text: str, entity_types: list[str]) -> str:
@@ -127,10 +136,12 @@ class GraphExtractor:
         source_id: str,
         tuple_delimiter: str,
         record_delimiter: str,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Parse the result string into entity and relationship data frames."""
+        extract_evidence: bool = False,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Parse the result string into entity, relationship, and evidence data frames."""
         entities: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
+        evidence: list[dict[str, Any]] = []
 
         records = [r.strip() for r in result.split(record_delimiter)]
 
@@ -153,14 +164,62 @@ class GraphExtractor:
                     "source_id": source_id,
                 })
 
+                # Extract evidence fields if present (evidence-enhanced prompt)
+                if extract_evidence:
+                    confidence = 0.5
+                    completeness = "unknown"
+                    source_span = None
+                    if len(record_attributes) >= 7:
+                        try:
+                            confidence = float(clean_str(record_attributes[4]))
+                            confidence = max(0.0, min(1.0, confidence))
+                        except ValueError:
+                            confidence = 0.5
+                        completeness = clean_str(record_attributes[5]).lower()
+                        if completeness not in ("complete", "partial", "inferred"):
+                            completeness = "unknown"
+                        source_span = clean_str(record_attributes[6])
+                    evidence.append({
+                        "subject_type": "entity",
+                        "subject_id": entity_name,
+                        "text_unit_id": source_id,
+                        "source_span": source_span,
+                        "extraction_confidence": confidence,
+                        "completeness_status": completeness,
+                    })
+
             if record_type == '"relationship"' and len(record_attributes) >= 5:
                 source = clean_str(record_attributes[1].upper())
                 target = clean_str(record_attributes[2].upper())
                 edge_description = clean_str(record_attributes[3])
-                try:
-                    weight = float(record_attributes[-1])
-                except ValueError:
-                    weight = 1.0
+
+                # In evidence-enhanced format, weight is at index 4 and evidence fields follow
+                # In original format, weight is the last field
+                confidence = 0.5
+                completeness = "unknown"
+                source_span = None
+
+                if extract_evidence and len(record_attributes) >= 8:
+                    # Evidence-enhanced format: description, weight, confidence, completeness, source_quote
+                    try:
+                        weight = float(clean_str(record_attributes[4]))
+                    except ValueError:
+                        weight = 1.0
+                    try:
+                        confidence = float(clean_str(record_attributes[5]))
+                        confidence = max(0.0, min(1.0, confidence))
+                    except ValueError:
+                        confidence = 0.5
+                    completeness = clean_str(record_attributes[6]).lower()
+                    if completeness not in ("complete", "partial", "inferred"):
+                        completeness = "unknown"
+                    source_span = clean_str(record_attributes[7])
+                else:
+                    # Original format: weight is last field
+                    try:
+                        weight = float(record_attributes[-1])
+                    except ValueError:
+                        weight = 1.0
 
                 relationships.append({
                     "source": source,
@@ -170,12 +229,23 @@ class GraphExtractor:
                     "weight": weight,
                 })
 
+                if extract_evidence:
+                    evidence.append({
+                        "subject_type": "relationship",
+                        "subject_id": f"{source}::{target}",
+                        "text_unit_id": source_id,
+                        "source_span": source_span,
+                        "extraction_confidence": confidence,
+                        "completeness_status": completeness,
+                    })
+
         entities_df = pd.DataFrame(entities) if entities else _empty_entities_df()
         relationships_df = (
             pd.DataFrame(relationships) if relationships else _empty_relationships_df()
         )
+        evidence_df = pd.DataFrame(evidence) if evidence else _empty_evidence_df()
 
-        return entities_df, relationships_df
+        return entities_df, relationships_df, evidence_df
 
 
 def _empty_entities_df() -> pd.DataFrame:
@@ -185,4 +255,17 @@ def _empty_entities_df() -> pd.DataFrame:
 def _empty_relationships_df() -> pd.DataFrame:
     return pd.DataFrame(
         columns=["source", "target", "weight", "description", "source_id"]
+    )
+
+
+def _empty_evidence_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "subject_type",
+            "subject_id",
+            "text_unit_id",
+            "source_span",
+            "extraction_confidence",
+            "completeness_status",
+        ]
     )
