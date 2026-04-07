@@ -24,6 +24,8 @@ from graphrag.config.models.cluster_graph_config import ClusterGraphConfig
 from graphrag.config.models.community_reports_config import CommunityReportsConfig
 from graphrag.config.models.drift_search_config import DRIFTSearchConfig
 from graphrag.config.models.embed_text_config import EmbedTextConfig
+from graphrag.config.models.entity_resolution_config import EntityResolutionConfig
+from graphrag.config.models.evidence_config import EvidenceConfig
 from graphrag.config.models.extract_claims_config import ExtractClaimsConfig
 from graphrag.config.models.extract_graph_config import ExtractGraphConfig
 from graphrag.config.models.extract_graph_nlp_config import ExtractGraphNLPConfig
@@ -210,6 +212,12 @@ class GraphRagConfig(BaseModel):
     )
     """The cluster graph configuration to use."""
 
+    entity_resolution: EntityResolutionConfig = Field(
+        description="The entity resolution configuration to use.",
+        default=EntityResolutionConfig(),
+    )
+    """The entity resolution configuration to use."""
+
     extract_claims: ExtractClaimsConfig = Field(
         description="The claim extraction configuration to use.",
         default=ExtractClaimsConfig(
@@ -217,6 +225,14 @@ class GraphRagConfig(BaseModel):
         ),
     )
     """The claim extraction configuration to use."""
+
+    evidence: EvidenceConfig = Field(
+        description="The evidence extraction and verification configuration.",
+        default=EvidenceConfig(
+            enabled=graphrag_config_defaults.evidence.enabled,
+        ),
+    )
+    """The evidence extraction and verification configuration."""
 
     community_reports: CommunityReportsConfig = Field(
         description="The community reports configuration to use.",

@@ -94,12 +94,27 @@ extract_graph_nlp:
 cluster_graph:
   max_cluster_size: {graphrag_config_defaults.cluster_graph.max_cluster_size}
 
+entity_resolution:
+  enabled: false # set to true to run embedding-based entity deduplication
+  completion_model_id: {graphrag_config_defaults.entity_resolution.completion_model_id}
+  embedding_model_id: {graphrag_config_defaults.entity_resolution.embedding_model_id}
+  similarity_threshold: {graphrag_config_defaults.entity_resolution.similarity_threshold}
+  top_k: {graphrag_config_defaults.entity_resolution.top_k}
+  # prompt: "prompts/entity_resolution.txt" # optional custom prompt
+
 extract_claims:
   enabled: false
   completion_model_id: {graphrag_config_defaults.extract_claims.completion_model_id}
   prompt: "prompts/extract_claims.txt"
   description: "{graphrag_config_defaults.extract_claims.description}"
   max_gleanings: {graphrag_config_defaults.extract_claims.max_gleanings}
+
+evidence:
+  enabled: false # set to true to capture source spans, confidence, and completeness during extraction
+  verification_enabled: false # set to true to run LLM-based post-extraction verification (~1 call per text unit)
+  # completion_model_id: {graphrag_config_defaults.evidence.verification_model_id}
+  # prompt: null # optional custom evidence-enhanced extraction prompt
+  quality_metrics_enabled: true
 
 community_reports:
   completion_model_id: {graphrag_config_defaults.community_reports.completion_model_id}

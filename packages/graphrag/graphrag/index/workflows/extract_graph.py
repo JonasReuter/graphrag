@@ -58,11 +58,26 @@ async def run_workflow(
         cache_key_creator=cache_key_creator,
     )
 
-    entities, relationships, raw_entities, raw_relationships = await extract_graph(
+    evidence_enabled = getattr(config, "evidence", None) and config.evidence.enabled
+    extraction_prompt = extraction_prompts.extraction_prompt
+    if evidence_enabled and config.evidence.prompt:
+        # Custom prompt path overrides default
+        from pathlib import Path
+        prompt_path = Path(config.evidence.prompt)
+        if prompt_path.exists():
+            extraction_prompt = prompt_path.read_text(encoding="utf-8")
+    elif evidence_enabled:
+        # Use built-in evidence-enhanced prompt
+        from graphrag.prompts.index.extract_graph_evidence import (
+            GRAPH_EXTRACTION_PROMPT as EVIDENCE_PROMPT,
+        )
+        extraction_prompt = EVIDENCE_PROMPT
+
+    entities, relationships, raw_entities, raw_relationships, evidence = await extract_graph(
         text_units=text_units,
         callbacks=context.callbacks,
         extraction_model=extraction_model,
-        extraction_prompt=extraction_prompts.extraction_prompt,
+        extraction_prompt=extraction_prompt,
         entity_types=config.extract_graph.entity_types,
         max_gleanings=config.extract_graph.max_gleanings,
         extraction_num_threads=config.concurrent_requests,
@@ -72,10 +87,14 @@ async def run_workflow(
         max_input_tokens=config.summarize_descriptions.max_input_tokens,
         summarization_prompt=summarization_prompts.summarize_prompt,
         summarization_num_threads=config.concurrent_requests,
+        extract_evidence=bool(evidence_enabled),
     )
 
     await context.output_table_provider.write_dataframe("entities", entities)
     await context.output_table_provider.write_dataframe("relationships", relationships)
+
+    if evidence_enabled and len(evidence) > 0:
+        await context.output_table_provider.write_dataframe("evidence", evidence)
 
     if config.snapshots.raw_graph:
         await context.output_table_provider.write_dataframe(
@@ -108,10 +127,11 @@ async def extract_graph(
     max_input_tokens: int,
     summarization_prompt: str,
     summarization_num_threads: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    extract_evidence: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """All the steps to create the base entity graph."""
     # this returns a graph for each text unit, to be merged later
-    extracted_entities, extracted_relationships = await extractor(
+    extracted_entities, extracted_relationships, extracted_evidence = await extractor(
         text_units=text_units,
         callbacks=callbacks,
         text_column="text",
@@ -122,6 +142,7 @@ async def extract_graph(
         max_gleanings=max_gleanings,
         num_threads=extraction_num_threads,
         async_type=extraction_async_type,
+        extract_evidence=extract_evidence,
     )
 
     if len(extracted_entities) == 0:
@@ -151,7 +172,7 @@ async def extract_graph(
         num_threads=summarization_num_threads,
     )
 
-    return (entities, relationships, raw_entities, raw_relationships)
+    return (entities, relationships, raw_entities, raw_relationships, extracted_evidence)
 
 
 async def get_summarized_entities_relationships(

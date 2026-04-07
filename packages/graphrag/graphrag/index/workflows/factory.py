@@ -54,11 +54,15 @@ _standard_workflows = [
     "create_final_documents",
     "extract_graph",
     "finalize_graph",
+    "resolve_entities",
     "extract_covariates",
+    "verify_evidence",
+    "compute_confidence",
     "create_communities",
     "create_final_text_units",
     "create_community_reports",
     "generate_text_embeddings",
+    "compute_quality_metrics",
 ]
 _fast_workflows = [
     "create_base_text_units",
@@ -66,6 +70,7 @@ _fast_workflows = [
     "extract_graph_nlp",
     "prune_graph",
     "finalize_graph",
+    "resolve_entities",
     "create_communities",
     "create_final_text_units",
     "create_community_reports_text",
