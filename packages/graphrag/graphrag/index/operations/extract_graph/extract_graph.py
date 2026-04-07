@@ -31,7 +31,8 @@ async def extract_graph(
     max_gleanings: int,
     num_threads: int,
     async_type: AsyncType,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    extract_evidence: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Extract a graph from a piece of text using a language model."""
     num_started = 0
 
@@ -46,6 +47,7 @@ async def extract_graph(
             model=model,
             prompt=prompt,
             max_gleanings=max_gleanings,
+            extract_evidence=extract_evidence,
         )
         num_started += 1
         return result
@@ -61,16 +63,19 @@ async def extract_graph(
 
     entity_dfs = []
     relationship_dfs = []
+    evidence_dfs = []
     for result in results:
         if result:
             entity_dfs.append(result[0])
             relationship_dfs.append(result[1])
+            evidence_dfs.append(result[2])
 
     entities = _merge_entities(entity_dfs)
     relationships = _merge_relationships(relationship_dfs)
     relationships = filter_orphan_relationships(relationships, entities)
+    evidence = _collect_evidence(evidence_dfs)
 
-    return (entities, relationships)
+    return (entities, relationships, evidence)
 
 
 async def _run_extract_graph(
@@ -80,7 +85,8 @@ async def _run_extract_graph(
     model: "LLMCompletion",
     prompt: str,
     max_gleanings: int,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    extract_evidence: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Run the graph intelligence entity extraction strategy."""
     extractor = GraphExtractor(
         model=model,
@@ -92,13 +98,14 @@ async def _run_extract_graph(
     )
     text = text.strip()
 
-    entities_df, relationships_df = await extractor(
+    entities_df, relationships_df, evidence_df = await extractor(
         text,
         entity_types=entity_types,
         source_id=source_id,
+        extract_evidence=extract_evidence,
     )
 
-    return (entities_df, relationships_df)
+    return (entities_df, relationships_df, evidence_df)
 
 
 def _merge_entities(entity_dfs) -> pd.DataFrame:
@@ -127,3 +134,20 @@ def _merge_relationships(relationship_dfs) -> pd.DataFrame:
         )
         .reset_index()
     )
+
+
+def _collect_evidence(evidence_dfs) -> pd.DataFrame:
+    """Collect evidence records without merging — each is a distinct observation."""
+    non_empty = [df for df in evidence_dfs if len(df) > 0]
+    if not non_empty:
+        return pd.DataFrame(
+            columns=[
+                "subject_type",
+                "subject_id",
+                "text_unit_id",
+                "source_span",
+                "extraction_confidence",
+                "completeness_status",
+            ]
+        )
+    return pd.concat(non_empty, ignore_index=True)
