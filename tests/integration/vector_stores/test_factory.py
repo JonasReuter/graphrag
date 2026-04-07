@@ -6,11 +6,20 @@ These tests will test the VectorStoreFactory class and the creation of each vect
 """
 
 import pytest
+
+
+def _try_import_arango() -> bool:
+    try:
+        import arango  # noqa: F401
+        return True
+    except ImportError:
+        return False
 from graphrag_vectors import (
     VectorStore,
     VectorStoreFactory,
     VectorStoreType,
 )
+from graphrag_vectors.arangodb import ArangoDBVectorStore
 from graphrag_vectors.azure_ai_search import AzureAISearchVectorStore
 from graphrag_vectors.cosmosdb import CosmosDBVectorStore
 from graphrag_vectors.lancedb import LanceDBVectorStore
@@ -19,6 +28,7 @@ from graphrag_vectors.lancedb import LanceDBVectorStore
 VectorStoreFactory().register(VectorStoreType.LanceDB, LanceDBVectorStore)
 VectorStoreFactory().register(VectorStoreType.AzureAISearch, AzureAISearchVectorStore)
 VectorStoreFactory().register(VectorStoreType.CosmosDB, CosmosDBVectorStore)
+VectorStoreFactory().register(VectorStoreType.ArangoDB, ArangoDBVectorStore)
 
 
 def test_create_lancedb_vector_store():
@@ -84,6 +94,28 @@ def test_register_and_create_custom_vector_store():
 
     # Check if it's in the list of registered vector store types
     assert "custom" in VectorStoreFactory()
+
+
+@pytest.mark.skipif(
+    not _try_import_arango(),
+    reason="python-arango not installed",
+)
+def test_create_arangodb_vector_store():
+    kwargs = {
+        "url": "http://localhost:8529",
+        "username": "root",
+        "password": "",
+        "db_name": "graphrag",
+        "index_name": "test_collection",
+    }
+    vector_store = VectorStoreFactory().create(VectorStoreType.ArangoDB, kwargs)
+    assert isinstance(vector_store, ArangoDBVectorStore)
+    assert vector_store.index_name == "test_collection"
+    assert vector_store.url == "http://localhost:8529"
+
+
+def test_arangodb_type_in_supported_types():
+    assert VectorStoreType.ArangoDB in VectorStoreFactory()
 
 
 def test_create_unknown_vector_store():
