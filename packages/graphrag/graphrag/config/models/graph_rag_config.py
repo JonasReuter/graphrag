@@ -26,6 +26,7 @@ from graphrag.config.models.drift_search_config import DRIFTSearchConfig
 from graphrag.config.models.embed_text_config import EmbedTextConfig
 from graphrag.config.models.entity_resolution_config import EntityResolutionConfig
 from graphrag.config.models.evidence_config import EvidenceConfig
+from graphrag.config.models.graph_store_config import GraphStoreConfig
 from graphrag.config.models.extract_claims_config import ExtractClaimsConfig
 from graphrag.config.models.extract_graph_config import ExtractGraphConfig
 from graphrag.config.models.extract_graph_nlp_config import ExtractGraphNLPConfig
@@ -233,6 +234,12 @@ class GraphRagConfig(BaseModel):
         ),
     )
     """The evidence extraction and verification configuration."""
+
+    graph_store: GraphStoreConfig = Field(
+        description="ArangoDB graph store configuration for native graph indexing and retrieval.",
+        default=GraphStoreConfig(),
+    )
+    """ArangoDB graph store configuration."""
 
     community_reports: CommunityReportsConfig = Field(
         description="The community reports configuration to use.",

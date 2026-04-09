@@ -27,9 +27,11 @@ from graphrag_vectors.vector_store_factory import (
     register_vector_store,
     vector_store_factory,
 )
+from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
 from graphrag_vectors.vector_store_type import VectorStoreType
 
 __all__ = [
+    "ArangoDBGraphStore",
     "AndExpr",
     "Condition",
     "F",

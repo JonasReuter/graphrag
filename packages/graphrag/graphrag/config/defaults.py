@@ -353,6 +353,23 @@ class VectorStoreDefaults:
 
 
 @dataclass
+class GraphStoreDefaults:
+    """Default values for ArangoDB graph store."""
+
+    enabled: bool = False
+    url: str = "http://localhost:8529"
+    username: str = "root"
+    password: str = ""
+    db_name: str = "graphrag"
+    graph_name: str = "knowledge_graph"
+    batch_size: int = 500
+    store_vectors: bool = True
+    vector_size: int = 3072
+    traversal_depth: int = 2
+    top_k_seeds: int = 10
+
+
+@dataclass
 class EvidenceDefaults:
     """Default values for evidence extraction and verification."""
 
@@ -412,6 +429,7 @@ class GraphRagConfigDefaults:
     )
     extract_claims: ExtractClaimsDefaults = field(default_factory=ExtractClaimsDefaults)
     evidence: EvidenceDefaults = field(default_factory=EvidenceDefaults)
+    graph_store: GraphStoreDefaults = field(default_factory=GraphStoreDefaults)
     prune_graph: PruneGraphDefaults = field(default_factory=PruneGraphDefaults)
     cluster_graph: ClusterGraphDefaults = field(default_factory=ClusterGraphDefaults)
     local_search: LocalSearchDefaults = field(default_factory=LocalSearchDefaults)

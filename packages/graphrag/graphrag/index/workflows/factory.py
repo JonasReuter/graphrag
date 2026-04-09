@@ -63,6 +63,7 @@ _standard_workflows = [
     "create_community_reports",
     "generate_text_embeddings",
     "compute_quality_metrics",
+    "index_graph_store",
 ]
 _fast_workflows = [
     "create_base_text_units",
@@ -75,6 +76,7 @@ _fast_workflows = [
     "create_final_text_units",
     "create_community_reports_text",
     "generate_text_embeddings",
+    "index_graph_store",
 ]
 _update_workflows = [
     "update_final_documents",
