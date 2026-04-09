@@ -594,3 +594,44 @@ graph_store:
 - `embedding_model_id` **str** - Name of the model definition to use for Embedding calls.
 - `k` **int** - Number of text units to retrieve from the vector store for context building.
 - `max_context_tokens` **int** - The maximum context size to create, in tokens.
+
+### graph_search (`--method graph`)
+
+ArangoDB-native local search. Uses `APPROX_NEAR_COSINE` vector ANN on the `entities.vector` field to find seed entities, then expands their neighborhood via k-hop AQL graph traversal. **ArangoDB is the single source of truth** — no parquet files are read at query time.
+
+**Requires** `graph_store.enabled: true` and a pre-built ArangoDB knowledge graph (`graphrag index` must have completed successfully).
+
+#### Config sources
+
+`graph_search` has no dedicated config section. It reuses parameters from two existing sections:
+
+| Parameter | Config section | Description |
+|-----------|---------------|-------------|
+| `completion_model_id`, `embedding_model_id` | `local_search` | LLM and embedding models |
+| `prompt` | `local_search` | System prompt |
+| `text_unit_prop`, `community_prop` | `local_search` | Token budget proportions |
+| `top_k_entities`, `top_k_relationships` | `local_search` | Neighbourhood size limits |
+| `max_context_tokens` | `local_search` | Total context token budget |
+| `traversal_depth` | `graph_store` | k-hop expansion depth. Default=`2` |
+| `top_k_seeds` | `graph_store` | Number of vector seed entities. Default=`10` |
+| `store_vectors` | `graph_store` | Whether entity vectors are stored in ArangoDB (required for hybrid search). Default=`true` |
+
+#### What is loaded from where
+
+| Data | Source |
+|------|--------|
+| Community reports | ArangoDB — via `entity_community_membership` edge traversal (per selected entity) |
+| Entities | ArangoDB — via `APPROX_NEAR_COSINE` + graph traversal |
+| Relationships | ArangoDB — graph edges from traversal |
+| Text units | ArangoDB — via `entity_text_unit` edge traversal |
+| Covariates | ArangoDB — via `entity_covariate` edge traversal (if `extract_claims` was enabled) |
+
+### drift_graph_search (`--method drift-graph`)
+
+Combines DRIFT iterative search with ArangoDB native graph traversal. **ArangoDB is the single source of truth** — community reports are loaded from ArangoDB for the global priming phase, and all local refinement steps use AQL graph traversal. No parquet files are read at query time.
+
+**Requires** `graph_store.enabled: true`.
+
+#### Config sources
+
+Reuses the same `drift_search` config section as `--method drift`. The local context params (`local_search_*` fields) control the ArangoDB graph traversal depth and token budgets for the local refinement steps. `graph_store.traversal_depth` and `graph_store.top_k_seeds` apply to the graph traversal.
