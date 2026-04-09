@@ -45,12 +45,16 @@ async def run_workflow(
 
         # Build entity lookup map from resolved entities so _clean_claim can
         # normalize LLM-produced name variants (e.g. ß vs SS) back to canonical titles.
+        # known_titles is also used to filter stale entries from the embedding index
+        # (pre-resolution entity titles that no longer exist after entity_resolution merges).
         resolved_entities_map: dict[str, str] = {}
+        known_titles: set[str] = set()
         try:
             entities = await reader.entities()
             if entities is not None and "title" in entities.columns:
                 for title in entities["title"].dropna():
                     canonical = str(title)
+                    known_titles.add(canonical)
                     # exact match
                     resolved_entities_map[canonical] = canonical
                     # ß-normalized variant → canonical
@@ -101,6 +105,7 @@ async def run_workflow(
                 vector_store=cand_store,
                 top_k=k,
                 fallback=DEFAULT_ENTITY_TYPES,
+                known_titles=known_titles or None,
             )
             text_units = text_units.copy()
             text_units["_entity_spec"] = entity_specs
@@ -224,11 +229,16 @@ async def _entity_specs_per_chunk(
     vector_store,
     top_k: int,
     fallback: list[str],
+    known_titles: set[str] | None = None,
 ) -> list[list[str]]:
     """Embed each text chunk and return top-k canonical entity titles as entity spec.
 
     Falls back to ``fallback`` (entity type list) when the entity index is empty
     or a particular chunk fails to embed.
+
+    ``known_titles`` filters out stale pre-resolution titles that may remain in the
+    embedding index after entity_resolution merges. Only titles that exist in the
+    current entities table are returned as candidates.
     """
     batch_size = 32
     try:
@@ -260,6 +270,7 @@ async def _entity_specs_per_chunk(
                 r.document.data.get("title", "")
                 for r in results
                 if r.document.data.get("title")
+                and (known_titles is None or r.document.data["title"] in known_titles)
             ]
             specs.append(titles if titles else fallback)
 
