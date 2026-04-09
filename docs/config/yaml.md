@@ -331,27 +331,40 @@ These are the settings used for Leiden hierarchical clustering of the graph to c
 
 ### entity_resolution
 
-Embedding-based entity deduplication that runs after graph extraction. Entities extracted from different text chunks (e.g. "SEBASTIAN WETZ", "HERR WETZ", "SEBASTIAN WETZ VON ME-MESSYSTEME GMBH") are compared by cosine similarity of their embeddings. Candidates above the threshold are confirmed by an LLM before merging. Resolved entity embeddings are stored persistently in the configured vector store so that incremental indexing runs compare new entities against the full historical entity set.
+Entity deduplication that runs after graph extraction. Entities extracted from different text chunks (e.g. "SEBASTIAN MUSTERMANN", "HERR MUSTERMANN", "SEBASTIAN MUSTERMANN VON XYZ GMBH") are identified as duplicates and merged. Two strategies are available:
+
+- **`llm_context_window`** (default): Entities are sorted by embedding similarity so that likely duplicates appear adjacent, then sent as a single window to the LLM which identifies all duplicate groups at once. Scales naturally as LLM context windows grow — the `window_tokens` budget can be raised to send more entities per call.
+- **`embedding_search`**: Cosine similarity is used as a gate — only pairs above `similarity_threshold` are forwarded to the LLM for per-pair confirmation. Faster for large entity sets but may miss duplicates with dissimilar surface forms (e.g. honorifics, language variants).
+
+Resolved entity embeddings are stored persistently in the configured vector store so that incremental indexing runs compare new entities against the full historical entity set.
 
 **Disabled by default** — enable with `entity_resolution.enabled: true`.
 
 #### Fields
 
 - `enabled` **bool** - Whether to run entity resolution. Default=`false`
-- `completion_model_id` **str** - Model to use for LLM merge confirmation.
-- `embedding_model_id` **str** - Model to use for generating entity embeddings.
+- `strategy` **str** - Resolution strategy: `"llm_context_window"` or `"embedding_search"`. Default=`"llm_context_window"`
+- `completion_model_id` **str** - Model to use for LLM disambiguation/confirmation.
+- `embedding_model_id` **str** - Model to use for generating entity embeddings (used for sorting in `llm_context_window`, for candidate gating in `embedding_search`).
 - `model_instance_name` **str** - Cache partition name. Default=`"entity_resolution"`
-- `similarity_threshold` **float** - Minimum cosine similarity to consider two entities as merge candidates. Default=`0.92`
-- `top_k` **int** - Number of nearest neighbours retrieved per entity from the vector store. Default=`10`
-- `prompt` **str|None** - Path to a custom merge-confirmation prompt file. Uses built-in prompt if not set.
+- `window_tokens` **int** - Maximum token budget per LLM context window (`llm_context_window` strategy only). Raise this as LLM context lengths grow. Default=`100000`
+- `similarity_threshold` **float** - Minimum cosine similarity to consider two entities as merge candidates (`embedding_search` strategy only). Default=`0.72`
+- `top_k` **int** - Number of nearest neighbours retrieved per entity from the vector store (`embedding_search` strategy only). Default=`10`
+- `prompt` **str|None** - Path to a custom prompt file. Uses the built-in strategy-specific prompt if not set.
 
 #### Example
 
 ```yaml
 entity_resolution:
   enabled: true
-  similarity_threshold: 0.92
-  top_k: 10
+  strategy: llm_context_window   # default — let the LLM see all entities at once
+  window_tokens: 100000          # raise as your LLM context window grows
+
+  # embedding_search strategy (faster, may miss surface-form variants):
+  # strategy: embedding_search
+  # similarity_threshold: 0.72
+  # top_k: 10
+
   # Uses the same vector_store backend configured above.
   # For a dedicated resolution store, override here:
   # vector_store:
