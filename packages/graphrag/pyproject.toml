@@ -42,7 +42,7 @@ dependencies = [
     "graphrag-input==3.0.8",
     "graphrag-llm==3.0.8",
     "graphrag-storage==3.0.8",
-    "graphrag-vectors==3.0.8",
+    "graphrag-vectors[arangodb]==3.0.8",
     "graspologic-native~=1.2",
     "json-repair~=0.30",
     "networkx~=3.4",

@@ -4,8 +4,9 @@ services:
     container_name: graphrag-arangodb
     ports:
       - "8529:8529"
+    command: ["arangod", "--vector-index", "true"]
     environment:
-      ARANGO_ROOT_PASSWORD: ""
+      ARANGO_ROOT_PASSWORD: "graphrag"
     volumes:
       - arangodb_data:/var/lib/arangodb3
       - arangodb_apps:/var/lib/arangodb3-apps
