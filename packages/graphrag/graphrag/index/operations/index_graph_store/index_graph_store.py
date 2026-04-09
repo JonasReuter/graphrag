@@ -57,6 +57,7 @@ async def index_graph_store(
     # --- Setup schema ---
     graph_store.setup_graph()
     graph_store._ensure_entity_vector_index()
+    graph_store._ensure_temporal_indexes()
 
     # --- Phase 1: Load entities ---
     logger.info("Loading entities...")
