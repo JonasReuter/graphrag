@@ -75,8 +75,15 @@ async def run_workflow(
     vector_store = create_vector_store(vs_config, index_schema)
     vector_store.connect()
 
-    # --- Prompt ---
-    prompt = er_config.resolved_prompt()
+    # --- Prompt (strategy-dependent) ---
+    if er_config.strategy == "llm_context_window":
+        from graphrag.prompts.index.entity_disambiguation import (
+            ENTITY_DISAMBIGUATION_PROMPT,
+        )
+
+        prompt = ENTITY_DISAMBIGUATION_PROMPT
+    else:
+        prompt = er_config.resolved_prompt()
 
     async with (
         context.output_table_provider.open(
@@ -96,6 +103,8 @@ async def run_workflow(
             prompt=prompt,
             similarity_threshold=er_config.similarity_threshold,
             top_k=er_config.top_k,
+            strategy=er_config.strategy,
+            window_tokens=er_config.window_tokens,
         )
 
     logger.info("Workflow completed: resolve_entities")

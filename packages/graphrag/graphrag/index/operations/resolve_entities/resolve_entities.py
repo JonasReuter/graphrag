@@ -3,6 +3,7 @@
 
 """Entity resolution operation: embed → search → group → LLM confirm → merge → upsert."""
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -38,11 +39,21 @@ async def resolve_entities(
     prompt: str,
     similarity_threshold: float,
     top_k: int,
+    strategy: str = "llm_context_window",
+    window_tokens: int = 100_000,
 ) -> dict[str, list[dict[str, Any]]]:
     """Run the full entity resolution pass.
 
+    For strategy ``llm_context_window`` (default):
     1. Load all entities from the table.
-    2. Embed each entity (title: description) and upsert into the persistent store.
+    2. Embed each entity (title: description).
+    3. Sort entities by greedy nearest-neighbor traversal of embedding space.
+    4. Pack into windows of ``window_tokens`` and let the LLM identify duplicates.
+    5. Apply confirmed merges to entities and relationships tables.
+
+    For strategy ``embedding_search`` (legacy):
+    1. Load all entities from the table.
+    2. Embed each entity and upsert into the persistent store.
     3. For every entity, search the store for the top-k most similar neighbours.
     4. Group pairs above the threshold using Union-Find.
     5. Confirm each group via LLM.
@@ -67,15 +78,24 @@ async def resolve_entities(
     ids = [str(e["id"]) for e in all_entities]
     embeddings = await _embed_texts(texts, ids, embedding_model, vector_store)
 
-    # --- Phase 3 & 4: search store for similar neighbours + group ---
-    merge_map = await _build_merge_map(
-        all_entities=all_entities,
-        embeddings=embeddings,
-        vector_store=vector_store,
-        extractor=EntityMergeExtractor(model=completion_model, prompt=prompt),
-        similarity_threshold=similarity_threshold,
-        top_k=top_k,
-    )
+    # --- Phase 3 & 4: resolve duplicates based on strategy ---
+    if strategy == "llm_context_window":
+        merge_map = await _resolve_via_context_window(
+            all_entities=all_entities,
+            embeddings=embeddings,
+            completion_model=completion_model,
+            prompt=prompt,
+            window_tokens=window_tokens,
+        )
+    else:
+        merge_map = await _build_merge_map(
+            all_entities=all_entities,
+            embeddings=embeddings,
+            vector_store=vector_store,
+            extractor=EntityMergeExtractor(model=completion_model, prompt=prompt),
+            similarity_threshold=similarity_threshold,
+            top_k=top_k,
+        )
 
     if not merge_map:
         logger.info("resolve_entities: no merges confirmed — graph unchanged.")
@@ -220,6 +240,102 @@ def _groups_from_pairs(
         groups[uf.find(idx)].append(idx)
 
     return [g for g in groups.values() if len(g) >= 2]
+
+
+def _sort_by_embedding(embeddings: list[list[float]]) -> list[int]:
+    """Greedy nearest-neighbor sort — returns indices in traversal order.
+
+    Adjacent indices in the result have maximally similar embeddings,
+    which clusters potential duplicates close together in the LLM window.
+    """
+    import numpy as np
+
+    if not embeddings or not embeddings[0]:
+        return list(range(len(embeddings)))
+
+    E = np.array(embeddings, dtype="float32")
+    norms = np.linalg.norm(E, axis=1, keepdims=True)
+    E = E / (norms + 1e-8)
+
+    n = len(E)
+    visited = np.zeros(n, dtype=bool)
+    order: list[int] = [0]
+    visited[0] = True
+
+    for _ in range(n - 1):
+        sims = E @ E[order[-1]]
+        sims[visited] = -np.inf
+        next_idx = int(np.argmax(sims))
+        order.append(next_idx)
+        visited[next_idx] = True
+
+    return order
+
+
+def _pack_windows(
+    entities: list[dict], window_tokens: int
+) -> list[list[dict]]:
+    """Pack entities into windows not exceeding window_tokens (estimated)."""
+    windows: list[list[dict]] = []
+    current: list[dict] = []
+    current_tokens = 0
+
+    for entity in entities:
+        text = json.dumps(entity, ensure_ascii=False)
+        tokens = len(text) // 4
+        if current and current_tokens + tokens > window_tokens:
+            windows.append(current)
+            current = []
+            current_tokens = 0
+        current.append(entity)
+        current_tokens += tokens
+
+    if current:
+        windows.append(current)
+
+    return windows
+
+
+async def _resolve_via_context_window(
+    all_entities: list[dict[str, Any]],
+    embeddings: list[list[float]],
+    completion_model: "LLMCompletion",
+    prompt: str,
+    window_tokens: int,
+) -> dict[str, str]:
+    """Sort entities by embedding similarity, pack into windows, let LLM identify duplicates."""
+    from graphrag.index.operations.resolve_entities.entity_disambiguation_extractor import (
+        EntityDisambiguationExtractor,
+    )
+
+    sorted_indices = _sort_by_embedding(embeddings)
+    sorted_entities = [
+        {
+            "title": all_entities[i]["title"],
+            "type": all_entities[i].get("type", ""),
+            "description": all_entities[i].get("description", ""),
+        }
+        for i in sorted_indices
+    ]
+
+    windows = _pack_windows(sorted_entities, window_tokens)
+    extractor = EntityDisambiguationExtractor(model=completion_model, prompt=prompt)
+
+    # Track which titles appear in which window to handle cross-window duplicates
+    # (not handled in this version — within-window disambiguation only)
+    merge_map: dict[str, str] = {}
+    for window in windows:
+        groups = await extractor(window)
+        all_titles = {e["title"] for e in window}
+        for group in groups:
+            canonical = group.canonical
+            if canonical not in all_titles:
+                continue
+            for alias in group.aliases:
+                if alias in all_titles and alias != canonical:
+                    merge_map[alias] = canonical
+
+    return merge_map
 
 
 async def _rewrite_entities(
