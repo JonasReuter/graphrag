@@ -80,6 +80,11 @@ def _update_and_merge_relationships(
         final_relationships["source_degree"] + final_relationships["target_degree"]
     )
 
+    # Ensure all final columns exist (temporal columns may be absent in old data)
+    for col in RELATIONSHIPS_FINAL_COLUMNS:
+        if col not in final_relationships.columns:
+            final_relationships[col] = None
+
     return final_relationships.loc[
         :,
         RELATIONSHIPS_FINAL_COLUMNS,

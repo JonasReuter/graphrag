@@ -71,6 +71,11 @@ def _group_and_resolve_entities(
     # Force the result into a DataFrame
     resolved: pd.DataFrame = pd.DataFrame(aggregated)
 
+    # Ensure all final columns exist (temporal columns may be absent in old data)
+    for col in ENTITIES_FINAL_COLUMNS:
+        if col not in resolved.columns:
+            resolved[col] = None
+
     # Modify column order to keep consistency
     resolved = resolved.loc[:, ENTITIES_FINAL_COLUMNS]
 

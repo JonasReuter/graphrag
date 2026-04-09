@@ -34,6 +34,18 @@ class Relationship(Identified):
     rank: int | None = 1
     """Rank of the relationship, used for sorting (optional). Higher rank indicates more important relationship. This can be based on centrality or other metrics."""
 
+    observed_at: str | None = None
+    """ISO-8601 timestamp of the earliest document in which this relationship appears."""
+
+    last_observed_at: str | None = None
+    """ISO-8601 timestamp of the most recent document in which this relationship appears."""
+
+    valid_from: str | None = None
+    """LLM-extracted start of the temporal scope this relationship applies to (ISO-8601)."""
+
+    valid_until: str | None = None
+    """LLM-extracted end of the temporal scope this relationship applies to (ISO-8601)."""
+
     attributes: dict[str, Any] | None = None
     """Additional attributes associated with the relationship (optional). To be included in the search prompt"""
 
@@ -61,5 +73,9 @@ class Relationship(Identified):
             description=d.get(description_key),
             weight=d.get(weight_key, 1.0),
             text_unit_ids=d.get(text_unit_ids_key),
+            observed_at=d.get("observed_at"),
+            last_observed_at=d.get("last_observed_at"),
+            valid_from=d.get("valid_from"),
+            valid_until=d.get("valid_until"),
             attributes=d.get(attributes_key),
         )

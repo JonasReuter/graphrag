@@ -66,6 +66,13 @@ N_TOKENS = "n_tokens"
 CREATION_DATE = "creation_date"
 RAW_DATA = "raw_data"
 
+# TEMPORAL FIELDS
+OBSERVED_AT = "observed_at"
+LAST_OBSERVED_AT = "last_observed_at"
+VALID_FROM = "valid_from"
+VALID_UNTIL = "valid_until"
+CREATED_AT = "created_at"
+
 # the following lists define the final content and ordering of columns in the data model parquet outputs
 ENTITIES_FINAL_COLUMNS = [
     ID,
@@ -76,6 +83,10 @@ ENTITIES_FINAL_COLUMNS = [
     TEXT_UNIT_IDS,
     NODE_FREQUENCY,
     NODE_DEGREE,
+    OBSERVED_AT,
+    LAST_OBSERVED_AT,
+    VALID_FROM,
+    VALID_UNTIL,
 ]
 
 RELATIONSHIPS_FINAL_COLUMNS = [
@@ -87,6 +98,10 @@ RELATIONSHIPS_FINAL_COLUMNS = [
     EDGE_WEIGHT,
     EDGE_DEGREE,
     TEXT_UNIT_IDS,
+    OBSERVED_AT,
+    LAST_OBSERVED_AT,
+    VALID_FROM,
+    VALID_UNTIL,
 ]
 
 COMMUNITIES_FINAL_COLUMNS = [
@@ -146,6 +161,7 @@ TEXT_UNITS_FINAL_COLUMNS = [
     ENTITY_IDS,
     RELATIONSHIP_IDS,
     COVARIATE_IDS,
+    CREATED_AT,
 ]
 
 DOCUMENTS_FINAL_COLUMNS = [
