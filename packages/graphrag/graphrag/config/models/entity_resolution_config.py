@@ -6,6 +6,7 @@
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+from graphrag_vectors import VectorStoreConfig
 
 from graphrag.config.defaults import graphrag_config_defaults
 from graphrag.prompts.index.entity_resolution import ENTITY_RESOLUTION_PROMPT
@@ -30,6 +31,10 @@ class EntityResolutionConfig(BaseModel):
         description="Cache partition name for the completion model.",
         default=graphrag_config_defaults.entity_resolution.model_instance_name,
     )
+    strategy: str = Field(
+        description="Resolution strategy: 'llm_context_window' (default) sends sorted entity windows to the LLM for disambiguation. 'embedding_search' uses cosine similarity threshold + per-pair LLM confirmation.",
+        default=graphrag_config_defaults.entity_resolution.strategy,
+    )
     similarity_threshold: float = Field(
         description="Minimum cosine similarity to consider two entities as candidates for merging.",
         default=graphrag_config_defaults.entity_resolution.similarity_threshold,
@@ -38,9 +43,17 @@ class EntityResolutionConfig(BaseModel):
         description="Number of nearest neighbours to retrieve per entity from the vector store.",
         default=graphrag_config_defaults.entity_resolution.top_k,
     )
+    window_tokens: int = Field(
+        description="Maximum token budget per LLM context window (llm_context_window strategy). Increase as LLM context lengths grow.",
+        default=graphrag_config_defaults.entity_resolution.window_tokens,
+    )
     prompt: str | None = Field(
         description="Path to a custom entity resolution prompt file.",
         default=graphrag_config_defaults.entity_resolution.prompt,
+    )
+    vector_store: VectorStoreConfig | None = Field(
+        description="Optional vector store override for entity resolution. Falls back to the top-level vector_store config.",
+        default=None,
     )
 
     def resolved_prompt(self) -> str:

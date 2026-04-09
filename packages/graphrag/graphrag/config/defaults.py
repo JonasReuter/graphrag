@@ -334,11 +334,13 @@ class EntityResolutionDefaults:
     """Default values for entity resolution."""
 
     enabled: bool = False
+    strategy: str = "llm_context_window"
     completion_model_id: str = DEFAULT_COMPLETION_MODEL_ID
     embedding_model_id: str = DEFAULT_EMBEDDING_MODEL_ID
     model_instance_name: str = "entity_resolution"
-    similarity_threshold: float = 0.92
+    similarity_threshold: float = 0.72
     top_k: int = 10
+    window_tokens: int = 100_000
     prompt: None = None
 
 
