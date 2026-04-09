@@ -137,6 +137,8 @@ def _make_mock_graph_store(
     gs.hybrid_search.return_value = (ent_docs, rel_docs)
     gs.traverse_neighbors.return_value = (ent_docs, rel_docs)
     gs.get_community_reports_for_entities.return_value = rep_docs
+    gs.get_text_units_for_entities.return_value = []
+    gs.get_covariates_for_entities.return_value = []
     return gs
 
 
@@ -149,7 +151,9 @@ def _make_builder(
     mock_gs = graph_store or _make_mock_graph_store()
 
     mock_embedder = MagicMock()
-    mock_embedder.embed_query.return_value = [0.1] * 4
+    mock_response = MagicMock()
+    mock_response.first_embedding = [0.1] * 4
+    mock_embedder.embedding.return_value = mock_response
 
     mock_vector_store = MagicMock()
 
@@ -202,7 +206,9 @@ class TestHybridSearchPath:
     def test_hybrid_search_receives_query_embedding(self):
         gs = _make_mock_graph_store()
         mock_embedder = MagicMock()
-        mock_embedder.embed_query.return_value = [0.9, 0.8, 0.7, 0.6]
+        mock_response = MagicMock()
+        mock_response.first_embedding = [0.9, 0.8, 0.7, 0.6]
+        mock_embedder.embedding.return_value = mock_response
 
         builder = ArangoDBGraphContextBuilder(
             graph_store=gs,
@@ -279,11 +285,21 @@ class TestCommunityContext:
 # ---------------------------------------------------------------------------
 
 class TestTextUnitContext:
-    def test_text_units_not_in_context_when_not_provided(self):
-        builder = _make_builder(text_units=None)
+    def test_text_units_fetched_from_graph_when_not_preloaded(self):
+        """When text_units=None, graph_store.get_text_units_for_entities() is called."""
+        gs = _make_mock_graph_store()
+        builder = _make_builder(graph_store=gs, text_units=None)
+        builder.build_context(query="test", text_unit_prop=0.5, max_context_tokens=4000)
+
+        gs.get_text_units_for_entities.assert_called_once()
+
+    def test_no_sources_when_graph_returns_empty_text_units(self):
+        """Empty graph result → no sources section."""
+        gs = _make_mock_graph_store()
+        gs.get_text_units_for_entities.return_value = []
+        builder = _make_builder(graph_store=gs, text_units=None)
         result = builder.build_context(query="test", text_unit_prop=0.5, max_context_tokens=4000)
 
-        # No sources section since text_units=None
         assert "sources" not in result.context_records
 
     def test_text_units_included_when_provided(self):
@@ -341,9 +357,115 @@ class TestTraversalDepth:
             traversal_depth=3,    # set at construction
             use_hybrid_search=True,
         )
-        builder.text_embedder.embed_query.return_value = [0.1] * 4
+        mock_resp = MagicMock()
+        mock_resp.first_embedding = [0.1] * 4
+        builder.text_embedder.embedding.return_value = mock_resp
 
         builder.build_context(query="test")
 
         call_kwargs = gs.hybrid_search.call_args[1]
         assert call_kwargs["depth"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Tests: ArangoDB document → domain object type safety
+# ---------------------------------------------------------------------------
+
+class TestDocToEntityTypes:
+    """Verify that ArangoDB docs with raw int/numpy-style values are converted safely."""
+
+    def _get_entity(self, doc: dict):
+        from graphrag.query.input.retrieval.arangodb_graph_retriever import _doc_to_entity
+        return _doc_to_entity(doc)
+
+    def _get_relationship(self, doc: dict):
+        from graphrag.query.input.retrieval.arangodb_graph_retriever import _doc_to_relationship
+        return _doc_to_relationship(doc)
+
+    def _get_community_report(self, doc: dict):
+        from graphrag.query.input.retrieval.arangodb_graph_retriever import _doc_to_community_report
+        return _doc_to_community_report(doc)
+
+    def test_entity_short_id_converted_to_str(self):
+        doc = {"id": "e1", "title": "E", "human_readable_id": 42, "degree": 3}
+        entity = self._get_entity(doc)
+        assert entity.short_id == "42"
+        assert isinstance(entity.short_id, str)
+
+    def test_entity_community_ids_converted_to_str_list(self):
+        doc = {"id": "e1", "title": "E", "community_ids": [0, 1, 2], "degree": 1}
+        entity = self._get_entity(doc)
+        assert entity.community_ids == ["0", "1", "2"]
+        assert all(isinstance(c, str) for c in entity.community_ids)
+
+    def test_entity_text_unit_ids_converted_to_str_list(self):
+        doc = {"id": "e1", "title": "E", "text_unit_ids": ["tu-1", "tu-2"], "degree": 1}
+        entity = self._get_entity(doc)
+        assert entity.text_unit_ids == ["tu-1", "tu-2"]
+
+    def test_entity_none_short_id_stays_none(self):
+        doc = {"id": "e1", "title": "E"}
+        entity = self._get_entity(doc)
+        assert entity.short_id is None
+
+    def test_relationship_short_id_converted_to_str(self):
+        doc = {
+            "id": "r1", "source": "A", "target": "B",
+            "human_readable_id": 7, "weight": 1.0, "combined_degree": 5,
+        }
+        rel = self._get_relationship(doc)
+        assert rel.short_id == "7"
+        assert isinstance(rel.short_id, str)
+
+    def test_community_report_short_id_converted_to_str(self):
+        doc = {
+            "id": "rep-1", "title": "R", "community": "3",
+            "summary": "s", "full_content": "f", "rank": 1.0,
+            "human_readable_id": 3,
+        }
+        report = self._get_community_report(doc)
+        assert report.short_id == "3"
+        assert isinstance(report.short_id, str)
+
+
+# ---------------------------------------------------------------------------
+# Tests: _fetch_covariates_from_graph
+# ---------------------------------------------------------------------------
+
+class TestFetchCovariatesFromGraph:
+    def test_empty_when_graph_returns_nothing(self):
+        gs = _make_mock_graph_store()
+        gs.get_covariates_for_entities.return_value = []
+        builder = _make_builder(graph_store=gs)
+        entities = _make_entities(2)
+        result = builder._fetch_covariates_from_graph(entities)
+        assert result == {}
+
+    def test_grouped_by_covariate_type(self):
+        gs = _make_mock_graph_store()
+        gs.get_covariates_for_entities.return_value = [
+            {"id": "c1", "subject_id": "Entity0", "covariate_type": "claim", "subject_type": "entity"},
+            {"id": "c2", "subject_id": "Entity0", "covariate_type": "fact", "subject_type": "entity"},
+            {"id": "c3", "subject_id": "Entity1", "covariate_type": "claim", "subject_type": "entity"},
+        ]
+        builder = _make_builder(graph_store=gs)
+        entities = _make_entities(2)
+        result = builder._fetch_covariates_from_graph(entities)
+
+        assert "claim" in result
+        assert "fact" in result
+        assert len(result["claim"]) == 2
+        assert len(result["fact"]) == 1
+
+    def test_covariate_subject_id_preserved(self):
+        from graphrag.data_model.covariate import Covariate
+        gs = _make_mock_graph_store()
+        gs.get_covariates_for_entities.return_value = [
+            {"id": "c1", "subject_id": "Entity0", "covariate_type": "claim", "subject_type": "entity"},
+        ]
+        builder = _make_builder(graph_store=gs)
+        result = builder._fetch_covariates_from_graph(_make_entities(1))
+
+        cov: Covariate = result["claim"][0]
+        assert cov.subject_id == "Entity0"
+        assert cov.id == "c1"
