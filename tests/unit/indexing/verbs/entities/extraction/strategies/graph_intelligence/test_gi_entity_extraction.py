@@ -32,7 +32,8 @@ model = create_completion(
 
 class TestRunChain(unittest.IsolatedAsyncioTestCase):
     async def test_run_extract_graph_single_document_correct_entities_returned(self):
-        entities_df, _ = await _run_extract_graph(
+        # _run_extract_graph returns (entities_df, relationships_df, evidence_df)
+        entities_df, _, _evidence = await _run_extract_graph(
             text="test_text",
             source_id="1",
             entity_types=["person"],
@@ -46,7 +47,7 @@ class TestRunChain(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_run_extract_graph_single_document_correct_edges_returned(self):
-        _, relationships_df = await _run_extract_graph(
+        _, relationships_df, _evidence = await _run_extract_graph(
             text="test_text",
             source_id="1",
             entity_types=["person"],
@@ -65,7 +66,7 @@ class TestRunChain(unittest.IsolatedAsyncioTestCase):
         }
 
     async def test_run_extract_graph_single_document_source_ids_mapped(self):
-        entities_df, relationships_df = await _run_extract_graph(
+        entities_df, relationships_df, _evidence = await _run_extract_graph(
             text="test_text",
             source_id="1",
             entity_types=["person"],
