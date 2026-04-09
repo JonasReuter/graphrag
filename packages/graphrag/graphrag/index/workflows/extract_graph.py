@@ -59,6 +59,7 @@ async def run_workflow(
     )
 
     evidence_enabled = getattr(config, "evidence", None) and config.evidence.enabled
+    temporal_enabled = getattr(config, "temporal", None) and config.temporal.enabled
     extraction_prompt = extraction_prompts.extraction_prompt
     if evidence_enabled and config.evidence.prompt:
         # Custom prompt path overrides default
@@ -72,6 +73,27 @@ async def run_workflow(
             GRAPH_EXTRACTION_PROMPT as EVIDENCE_PROMPT,
         )
         extraction_prompt = EVIDENCE_PROMPT
+    elif temporal_enabled and config.temporal.temporal_extraction:
+        if config.temporal.temporal_prompt:
+            from pathlib import Path
+            prompt_path = Path(config.temporal.temporal_prompt)
+            if prompt_path.exists():
+                extraction_prompt = prompt_path.read_text(encoding="utf-8")
+        else:
+            from graphrag.prompts.index.extract_graph_temporal import (
+                GRAPH_EXTRACTION_PROMPT as TEMPORAL_PROMPT,
+            )
+            extraction_prompt = TEMPORAL_PROMPT
+
+    # Build text_unit_id -> created_at lookup for temporal bounds computation
+    text_unit_timestamps: dict[str, str] | None = None
+    if temporal_enabled and config.temporal.propagate_document_timestamps:
+        text_unit_timestamps = {}
+        if "created_at" in text_units.columns:
+            for _, row in text_units.iterrows():
+                ts = row.get("created_at")
+                if ts:
+                    text_unit_timestamps[str(row["id"])] = str(ts)
 
     entities, relationships, raw_entities, raw_relationships, evidence = await extract_graph(
         text_units=text_units,
@@ -88,6 +110,8 @@ async def run_workflow(
         summarization_prompt=summarization_prompts.summarize_prompt,
         summarization_num_threads=config.concurrent_requests,
         extract_evidence=bool(evidence_enabled),
+        extract_temporal=bool(temporal_enabled and config.temporal.temporal_extraction),
+        text_unit_timestamps=text_unit_timestamps,
     )
 
     await context.output_table_provider.write_dataframe("entities", entities)
@@ -128,6 +152,8 @@ async def extract_graph(
     summarization_prompt: str,
     summarization_num_threads: int,
     extract_evidence: bool = False,
+    extract_temporal: bool = False,
+    text_unit_timestamps: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """All the steps to create the base entity graph."""
     # this returns a graph for each text unit, to be merged later
@@ -143,6 +169,8 @@ async def extract_graph(
         num_threads=extraction_num_threads,
         async_type=extraction_async_type,
         extract_evidence=extract_evidence,
+        extract_temporal=extract_temporal,
+        text_unit_timestamps=text_unit_timestamps,
     )
 
     if len(extracted_entities) == 0:

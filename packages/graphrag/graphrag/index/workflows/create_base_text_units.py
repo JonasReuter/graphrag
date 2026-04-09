@@ -106,6 +106,7 @@ async def create_base_text_units(
                 "document_id": doc["id"],
                 "text": chunk_text,
                 "n_tokens": len(tokenizer.encode(chunk_text)),
+                "created_at": doc.get("creation_date"),
             }
             row["id"] = gen_sha512_hash(row, ["text"])
             await text_units_table.write(row)
