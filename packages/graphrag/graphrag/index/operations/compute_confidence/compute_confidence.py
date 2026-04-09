@@ -235,12 +235,18 @@ def _compute_group_metrics(
 
 
 def _compute_confidence(metrics: dict, weights: dict) -> float:
-    """Compute the final confidence score from metrics and weights."""
+    """Compute the final confidence score from metrics and weights.
+
+    Each weight component contributes positively.  The contradiction factor
+    is expressed as ``(1 - penalty)`` so that zero contradictions yields the
+    full weight contribution and maximum contradictions yields zero.  This
+    ensures the weights sum to 1.0 and the maximum achievable score is 1.0.
+    """
     score = (
         weights.get("extraction", 0.3) * metrics["avg_extraction_confidence"]
         + weights.get("source_agreement", 0.3) * metrics["source_agreement_score"]
         + weights.get("cross_doc", 0.25) * metrics["cross_doc_score"]
-        - weights.get("contradiction_penalty", 0.15) * metrics["contradiction_penalty"]
+        + weights.get("contradiction_penalty", 0.15) * (1.0 - metrics["contradiction_penalty"])
     )
     return max(0.0, min(1.0, score))
 
