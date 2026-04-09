@@ -310,6 +310,14 @@ def get_drift_search_engine(
     embedding_model = create_embedding(embedding_model_settings)
 
     tokenizer = chat_model.tokenizer
+    ls_config = config.local_search
+
+    drift_reranker: CohereReranker | None = None
+    if ls_config.rerank.enabled:
+        drift_reranker = CohereReranker(
+            api_key=ls_config.rerank.api_key,
+            model=ls_config.rerank.model,
+        )
 
     return DRIFTSearch(
         model=chat_model,
@@ -325,6 +333,8 @@ def get_drift_search_engine(
             reduce_system_prompt=reduce_system_prompt,
             config=config.drift_search,
             response_type=response_type,
+            reranker=drift_reranker,
+            direct_text_unit_search_k=ls_config.rerank.direct_text_unit_search_k,
         ),
         tokenizer=tokenizer,
         callbacks=callbacks,
@@ -378,6 +388,14 @@ def get_drift_graph_search_engine(
     retriever = ArangoDBGraphRetriever(graph_store)
     reports = retriever.get_all_community_reports()
 
+    drift_graph_ls_config = config.local_search
+    drift_graph_reranker: CohereReranker | None = None
+    if drift_graph_ls_config.rerank.enabled:
+        drift_graph_reranker = CohereReranker(
+            api_key=drift_graph_ls_config.rerank.api_key,
+            model=drift_graph_ls_config.rerank.model,
+        )
+
     graph_context_builder = ArangoDBGraphContextBuilder(
         graph_store=graph_store,
         entity_text_embeddings=description_embedding_store,
@@ -388,6 +406,8 @@ def get_drift_graph_search_engine(
         traversal_depth=graph_cfg.traversal_depth,
         top_k_seeds=graph_cfg.top_k_seeds,
         use_hybrid_search=graph_cfg.store_vectors,
+        reranker=drift_graph_reranker,
+        direct_text_unit_search_k=drift_graph_ls_config.rerank.direct_text_unit_search_k,
     )
 
     return DRIFTSearch(
