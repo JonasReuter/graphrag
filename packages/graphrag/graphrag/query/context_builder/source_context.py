@@ -46,6 +46,7 @@ def build_text_unit_context(
         random.shuffle(text_units)
 
     include_relationship_ids = relationships is not None
+    has_temporal = any(u.created_at for u in text_units)
 
     # build a lookup: relationship UUID → short_id (for cross-reference)
     rel_id_to_short: dict[str, str] = {}
@@ -59,6 +60,8 @@ def build_text_unit_context(
 
     # add header
     header = ["id", "text"]
+    if has_temporal:
+        header.append("date")
     attribute_cols = (
         list(text_units[0].attributes.keys()) if text_units[0].attributes else []
     )
@@ -75,11 +78,13 @@ def build_text_unit_context(
         new_context = [
             unit.short_id,
             unit.text,
-            *[
-                str(unit.attributes.get(field, "")) if unit.attributes else ""
-                for field in attribute_cols
-            ],
         ]
+        if has_temporal:
+            new_context.append(unit.created_at or "")
+        new_context.extend([
+            str(unit.attributes.get(field, "")) if unit.attributes else ""
+            for field in attribute_cols
+        ])
         if include_relationship_ids:
             rel_short_ids = [
                 rel_id_to_short[rid]

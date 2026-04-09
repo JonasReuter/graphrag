@@ -72,17 +72,25 @@ def build_evidence_context(
     if exclude_refuted:
         relevant = [ev for ev in relevant if ev.verification_status != "refuted"]
 
-    # Sort: confirmed first, then by extraction_confidence descending
+    # Sort: confirmed first, then by recency (newer first), then by confidence descending
     relevant.sort(
         key=lambda ev: (
             _VERIFICATION_PRIORITY.get(ev.verification_status, 99),
+            # Sort by time_scope descending (newer first); None sorts last
+            "" if ev.time_scope else "9999",
+            -(ev.time_scope or "") if ev.time_scope else "",
             -ev.extraction_confidence,
         )
     )
 
+    # Check if any evidence has temporal data
+    has_temporal = any(ev.time_scope for ev in relevant)
+
     # Build context table
     current_context_text = f"-----{context_name}-----\n"
     header = ["id", "subject", "type", "source_quote", "confidence", "status"]
+    if has_temporal:
+        header.append("time_scope")
     current_context_text += column_delimiter.join(header) + "\n"
     current_tokens = tokenizer.num_tokens(current_context_text)
 
@@ -100,6 +108,8 @@ def build_evidence_context(
             confidence_str,
             ev.verification_status,
         ]
+        if has_temporal:
+            row.append(ev.time_scope or "")
         row_text = column_delimiter.join(row) + "\n"
         new_tokens = tokenizer.num_tokens(row_text)
         if current_tokens + new_tokens > max_context_tokens:
