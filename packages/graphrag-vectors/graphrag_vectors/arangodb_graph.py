@@ -900,6 +900,40 @@ class ArangoDBGraphStore:
         )
         return list(cursor)
 
+    def get_all_covariates(
+        self,
+        subject: str | None = None,
+        covariate_type: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        """Return all covariate documents with optional filters, sorted chronologically."""
+        aql = """
+            FOR c IN covariates
+              FILTER @subject == null OR UPPER(c.subject_id) == UPPER(@subject)
+              FILTER @covariate_type == null OR c.type == @covariate_type
+              FILTER @status == null OR c.status == @status
+              SORT c.start_date ASC, c.end_date ASC
+              RETURN {
+                id: c.id,
+                customer: c.subject_id,
+                type: c.type,
+                status: c.status,
+                start_date: c.start_date,
+                end_date: c.end_date,
+                description: c.description,
+                source_text: c.source_text
+              }
+        """
+        cursor = self._db.aql.execute(
+            aql,
+            bind_vars={
+                "subject": subject,
+                "covariate_type": covariate_type,
+                "status": status,
+            },
+        )
+        return list(cursor)
+
     def upsert_covariates(
         self,
         rows: list[dict[str, Any]],

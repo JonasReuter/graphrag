@@ -717,61 +717,6 @@ def drift_graph_search_streaming(
 
 
 @validate_call(config={"arbitrary_types_allowed": True})
-def timeline(
-    config: GraphRagConfig,
-    entity: str,
-    from_date: str | None = None,
-    until_date: str | None = None,
-    limit: int = 200,
-) -> list[dict[str, Any]]:
-    """Return a unified, chronologically sorted timeline for an entity — no LLM.
-
-    Combines relationship events (from the graph) and covariate facts (claims)
-    for the given entity into a single list ordered by date ascending.
-
-    Each item in the returned list has the following keys:
-
-    - ``date``        – ISO-8601 string or ``None`` when no date is available
-    - ``kind``        – ``"relationship"`` or ``"fact"``
-    - ``description`` – human-readable text extracted from the source documents
-    - ``related``     – the other entity name (relationships) or object (facts)
-    - ``status``      – claim status (facts only: CONFIRMED / OPEN / PENDING)
-    - ``source``      – source text excerpt (facts only)
-
-    Parameters
-    ----------
-    config:
-        GraphRAG configuration (``graph_store`` must be enabled and connected).
-    entity:
-        Entity name to look up — case-insensitive.
-    from_date:
-        ISO-8601 lower bound (inclusive).  ``None`` means no lower bound.
-    until_date:
-        ISO-8601 upper bound (inclusive).  ``None`` means no upper bound.
-    limit:
-        Maximum number of combined results (default 200).
-    """
-    from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
-
-    graph_cfg = config.graph_store
-    graph_store = ArangoDBGraphStore(
-        url=graph_cfg.url,
-        username=graph_cfg.username,
-        password=graph_cfg.password,
-        db_name=graph_cfg.db_name,
-        graph_name=graph_cfg.graph_name,
-        vector_size=graph_cfg.vector_size,
-    )
-    graph_store.connect()
-    return graph_store.entity_facts_timeline(
-        entity_title=entity,
-        from_date=from_date,
-        until_date=until_date,
-        limit=limit,
-    )
-
-
-@validate_call(config={"arbitrary_types_allowed": True})
 def covariate_report(
     config: GraphRagConfig,
     subject: str | None = None,

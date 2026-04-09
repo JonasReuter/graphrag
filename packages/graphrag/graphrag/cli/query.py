@@ -575,68 +575,6 @@ def run_covariate_report(
     return results
 
 
-def run_timeline(
-    root_dir: Path,
-    entity: str,
-    from_date: str | None = None,
-    until_date: str | None = None,
-    limit: int = 200,
-) -> list[dict]:
-    """Print a unified chronological timeline for an entity (relationships + facts, no LLM).
-
-    Queries ArangoDB directly via AQL and prints a date-sorted list of all
-    relationship events and covariate facts involving the given entity.
-
-    Parameters
-    ----------
-    root_dir:
-        The project root directory containing ``settings.yaml``.
-    entity:
-        Entity name to look up (case-insensitive).
-    from_date:
-        ISO-8601 lower bound (inclusive). ``None`` means no lower bound.
-    until_date:
-        ISO-8601 upper bound (inclusive). ``None`` means no upper bound.
-    limit:
-        Maximum number of combined results.
-    """
-    config = load_config(root_dir=root_dir)
-    results = api.timeline(
-        config=config,
-        entity=entity,
-        from_date=from_date,
-        until_date=until_date,
-        limit=limit,
-    )
-
-    if not results:
-        print(f"\nNo timeline data found for '{entity}'.")
-        if from_date or until_date:
-            print(f"  Filter: {from_date or '*'} → {until_date or '*'}")
-        return []
-
-    date_range = ""
-    if from_date or until_date:
-        date_range = f"  [{from_date or '*'} → {until_date or '*'}]"
-    print(f"\n{'='*70}")
-    print(f"  Timeline: {entity}{date_range}")
-    print(f"{'='*70}")
-
-    for row in results:
-        date = (row.get("date") or "")[:10] or "?        "
-        kind = "REL " if row.get("kind") == "relationship" else "FACT"
-        related = row.get("related") or ""
-        status = row.get("status") or ""
-        desc = row.get("description") or ""
-        status_str = f" [{status}]" if status else ""
-        related_str = f" → {related}" if related else ""
-        print(f"\n  {date}  {kind}{status_str}{related_str}")
-        print(f"    {desc[:140]}")
-
-    print()
-    return results
-
-
 def _resolve_output_files(
     config: GraphRagConfig,
     output_list: list[str],
