@@ -44,9 +44,12 @@ async def extract_covariates(
 
     async def run_strategy(row):
         text = row[column]
+        # Per-chunk entity spec (list of canonical entity titles) takes priority
+        # over the global entity_types fallback when populated by pre-search.
+        row_spec = row["_entity_spec"] if "_entity_spec" in row.index else entity_types
         result = await run_extract_claims(
             input=text,
-            entity_types=entity_types,
+            entity_types=row_spec,
             resolved_entities_map=resolved_entities_map,
             model=model,
             max_gleanings=max_gleanings,

@@ -71,6 +71,46 @@ async def run_workflow(
 
         prompts = config.extract_claims.resolved_prompts()
 
+        # Optional pre-search: embed each text chunk and inject top-k canonical
+        # entity titles as the entity specification. The LLM then produces
+        # subject_ids that match entity titles directly, avoiding post-hoc
+        # resolution for known entities.
+        k = config.extract_claims.entity_candidates_k
+        if k > 0:
+            rcs_cfg = config.resolve_claim_subjects
+            emb_cfg = config.get_embedding_model_config(rcs_cfg.embedding_model_id)
+            emb_model = create_embedding(
+                emb_cfg,
+                cache=context.cache.child("entity_candidate_embeddings"),
+                cache_key_creator=cache_key_creator,
+            )
+            vs_config = rcs_cfg.vector_store or config.vector_store
+            vector_size = getattr(emb_cfg, "vector_size", None) or 1536
+            cand_schema = IndexSchema(
+                index_name=rcs_cfg.entity_index_name,
+                id_field="id",
+                vector_field="vector",
+                vector_size=vector_size,
+                fields={"title": "str"},
+            )
+            cand_store = create_vector_store(vs_config, cand_schema)
+            cand_store.connect()
+            entity_specs = await _entity_specs_per_chunk(
+                texts=text_units["text"].tolist(),
+                embedding_model=emb_model,
+                vector_store=cand_store,
+                top_k=k,
+                fallback=DEFAULT_ENTITY_TYPES,
+            )
+            text_units = text_units.copy()
+            text_units["_entity_spec"] = entity_specs
+            logger.info(
+                "extract_covariates: injected up to %d entity candidates per chunk "
+                "(entity index has %d entities)",
+                k,
+                sum(len(s) for s in entity_specs) // max(len(entity_specs), 1),
+            )
+
         output = await extract_covariates(
             text_units=text_units,
             callbacks=context.callbacks,
@@ -171,8 +211,56 @@ async def extract_covariates(
         async_type=async_type,
         resolved_entities_map=resolved_entities_map,
     )
-    text_units.drop(columns=["text_unit_id"], inplace=True)  # don't pollute the global
+    text_units.drop(columns=["text_unit_id", "_entity_spec"], inplace=True, errors="ignore")
     covariates["id"] = covariates["covariate_type"].apply(lambda _x: str(uuid4()))
     covariates["human_readable_id"] = covariates.index
 
     return covariates.loc[:, COVARIATES_FINAL_COLUMNS]
+
+
+async def _entity_specs_per_chunk(
+    texts: list[str],
+    embedding_model,
+    vector_store,
+    top_k: int,
+    fallback: list[str],
+) -> list[list[str]]:
+    """Embed each text chunk and return top-k canonical entity titles as entity spec.
+
+    Falls back to ``fallback`` (entity type list) when the entity index is empty
+    or a particular chunk fails to embed.
+    """
+    batch_size = 32
+    try:
+        count = vector_store.count()
+    except Exception:  # noqa: BLE001
+        count = 0
+
+    if count == 0:
+        logger.debug(
+            "entity candidate pre-search: entity index is empty, falling back to entity types"
+        )
+        return [fallback] * len(texts)
+
+    specs: list[list[str]] = []
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start : start + batch_size]
+        response = await embedding_model.embedding_async(input=batch)
+        for vec in response.embeddings or []:
+            if vec is None:
+                specs.append(fallback)
+                continue
+            vec_list = vec.tolist() if hasattr(vec, "tolist") else list(vec)
+            results = vector_store.similarity_search_by_vector(
+                query_embedding=vec_list,
+                k=top_k,
+                include_vectors=False,
+            )
+            titles = [
+                r.document.data.get("title", "")
+                for r in results
+                if r.document.data.get("title")
+            ]
+            specs.append(titles if titles else fallback)
+
+    return specs
