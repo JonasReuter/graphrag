@@ -100,6 +100,85 @@ def get_local_search_engine(
     )
 
 
+def get_arangodb_local_search_engine(
+    config: GraphRagConfig,
+    reports: list[CommunityReport],
+    text_units: list[TextUnit],
+    description_embedding_store: VectorStore,
+    response_type: str,
+    system_prompt: str | None = None,
+    callbacks: list[QueryCallbacks] | None = None,
+) -> LocalSearch:
+    """Create a local search engine backed by ArangoDB native graph traversal.
+
+    Uses hybrid vector+graph AQL queries instead of in-memory entity filtering.
+    Requires graph_store.enabled=true in config and a running ArangoDB instance
+    with a pre-indexed knowledge graph (run graphrag index first).
+    """
+    from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
+
+    from graphrag.query.structured_search.local_search.graph_context import (
+        ArangoDBGraphContextBuilder,
+    )
+
+    graph_cfg = config.graph_store
+
+    model_settings = config.get_completion_model_config(
+        config.local_search.completion_model_id
+    )
+    chat_model = create_completion(model_settings)
+
+    embedding_settings = config.get_embedding_model_config(
+        config.local_search.embedding_model_id
+    )
+    embedding_model = create_embedding(embedding_settings)
+    tokenizer = chat_model.tokenizer
+    ls_config = config.local_search
+
+    graph_store = ArangoDBGraphStore(
+        url=graph_cfg.url,
+        username=graph_cfg.username,
+        password=graph_cfg.password,
+        db_name=graph_cfg.db_name,
+        graph_name=graph_cfg.graph_name,
+        vector_size=graph_cfg.vector_size,
+    )
+    graph_store.connect()
+
+    return LocalSearch(
+        model=chat_model,
+        system_prompt=system_prompt,
+        context_builder=ArangoDBGraphContextBuilder(
+            graph_store=graph_store,
+            entity_text_embeddings=description_embedding_store,
+            text_embedder=embedding_model,
+            community_reports=reports,
+            text_units=text_units,
+            tokenizer=tokenizer,
+            traversal_depth=graph_cfg.traversal_depth,
+            top_k_seeds=graph_cfg.top_k_seeds,
+            use_hybrid_search=graph_cfg.store_vectors,
+        ),
+        tokenizer=tokenizer,
+        model_params=model_settings.call_args,
+        context_builder_params={
+            "text_unit_prop": ls_config.text_unit_prop,
+            "community_prop": ls_config.community_prop,
+            "conversation_history_max_turns": ls_config.conversation_history_max_turns,
+            "conversation_history_user_turns_only": True,
+            "top_k_mapped_entities": ls_config.top_k_entities,
+            "top_k_relationships": ls_config.top_k_relationships,
+            "include_entity_rank": True,
+            "include_relationship_weight": True,
+            "include_community_rank": False,
+            "return_candidate_context": False,
+            "max_context_tokens": ls_config.max_context_tokens,
+        },
+        response_type=response_type,
+        callbacks=callbacks,
+    )
+
+
 def get_global_search_engine(
     config: GraphRagConfig,
     reports: list[CommunityReport],
