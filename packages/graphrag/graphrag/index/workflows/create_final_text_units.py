@@ -104,8 +104,9 @@ async def create_final_text_units(
             "entity_ids": entity_map.get(row["id"], []),
             "relationship_ids": relationship_map.get(row["id"], []),
             "covariate_ids": covariate_map.get(row["id"], []),
+            "created_at": row.get("created_at"),
         }
-        out = {c: fields[c] for c in TEXT_UNITS_FINAL_COLUMNS}
+        out = {c: fields[c] for c in TEXT_UNITS_FINAL_COLUMNS if c in fields}
         await output_table.write(out)
         if len(sample_rows) < 5:
             sample_rows.append(out)
