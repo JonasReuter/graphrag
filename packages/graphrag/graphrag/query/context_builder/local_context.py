@@ -43,11 +43,18 @@ def build_entity_context(
     if len(selected_entities) == 0:
         return "", pd.DataFrame()
 
+    # Check if any entity has temporal data
+    has_temporal = any(
+        e.observed_at or e.last_observed_at for e in selected_entities
+    )
+
     # add headers
     current_context_text = f"-----{context_name}-----" + "\n"
     header = ["id", "entity", "description"]
     if include_entity_rank:
         header.append(rank_description)
+    if has_temporal:
+        header.extend(["first_seen", "last_seen"])
     attribute_cols = (
         list(selected_entities[0].attributes.keys())
         if selected_entities[0].attributes
@@ -66,6 +73,9 @@ def build_entity_context(
         ]
         if include_entity_rank:
             new_context.append(str(entity.rank))
+        if has_temporal:
+            new_context.append(entity.observed_at or "")
+            new_context.append(entity.last_observed_at or "")
         for field in attribute_cols:
             field_value = (
                 str(entity.attributes.get(field))
@@ -187,11 +197,18 @@ def build_relationship_context(
 
     include_source_id = text_units is not None
 
+    # Check if any relationship has temporal data
+    has_temporal = any(
+        r.observed_at or r.last_observed_at for r in selected_relationships
+    )
+
     # add headers
     current_context_text = f"-----{context_name}-----" + "\n"
     header = ["id", "source", "target", "description"]
     if include_relationship_weight:
         header.append("weight")
+    if has_temporal:
+        header.extend(["first_seen", "last_seen"])
     if include_source_id:
         header.append("source_id")
     attribute_cols = (
@@ -215,6 +232,9 @@ def build_relationship_context(
         ]
         if include_relationship_weight:
             new_context.append(str(rel.weight if rel.weight else ""))
+        if has_temporal:
+            new_context.append(rel.observed_at or "")
+            new_context.append(rel.last_observed_at or "")
         if include_source_id:
             # Resolve primary source text unit to its short_id for cross-reference
             source_short_id = ""

@@ -69,6 +69,13 @@ If an Evidence table is present in the data:
 - Format evidence citations as: [Data: Evidence (record ids)]
 
 
+If temporal columns (first_seen, last_seen, date) are present in the data tables:
+- For questions about "latest", "current", "most recent", or "newest" information: prefer data with the most recent last_seen or date values.
+- When multiple data points about the same topic conflict: note the temporal ordering and indicate which information is most recent. More recent information should generally be preferred unless context suggests otherwise.
+- For timeline or chronological queries: present events in date order.
+- If a Timeline table is present, use it as the primary source for chronological answers.
+
+
 ---Target response length and format---
 
 {response_type}
