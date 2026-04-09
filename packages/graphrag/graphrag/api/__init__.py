@@ -22,6 +22,7 @@ from graphrag.api.query import (
     graph_search_streaming,
     local_search,
     local_search_streaming,
+    timeline,
 )
 from graphrag.prompt_tune.types import DocSelectionType
 
@@ -41,6 +42,8 @@ __all__ = [  # noqa: RUF022
     "graph_search_streaming",
     "drift_graph_search",
     "drift_graph_search_streaming",
+    "covariate_report",
+    "timeline",
     # prompt tuning API
     "DocSelectionType",
     "generate_indexing_prompts",
