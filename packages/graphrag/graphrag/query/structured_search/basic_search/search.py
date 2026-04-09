@@ -58,9 +58,14 @@ class BasicSearch(BaseSearch[BasicContextBuilder]):
         self,
         query: str,
         conversation_history: ConversationHistory | None = None,
+        context_only: bool = False,
         **kwargs,
     ) -> SearchResult:
-        """Build rag search context that fits a single context window and generate answer for the user query."""
+        """Build rag search context that fits a single context window and generate answer for the user query.
+
+        When context_only=True, skips the LLM generation step and returns the assembled
+        context directly. Use this to retrieve context for external LLM inference.
+        """
         start_time = time.time()
         search_prompt = ""
         llm_calls, prompt_tokens, output_tokens = {}, {}, {}
@@ -75,6 +80,20 @@ class BasicSearch(BaseSearch[BasicContextBuilder]):
         llm_calls["build_context"] = context_result.llm_calls
         prompt_tokens["build_context"] = context_result.prompt_tokens
         output_tokens["build_context"] = context_result.output_tokens
+
+        if context_only:
+            return SearchResult(
+                response="",
+                context_data=context_result.context_records,
+                context_text=context_result.context_chunks,
+                completion_time=time.time() - start_time,
+                llm_calls=sum(llm_calls.values()),
+                prompt_tokens=sum(prompt_tokens.values()),
+                output_tokens=0,
+                llm_calls_categories=llm_calls,
+                prompt_tokens_categories=prompt_tokens,
+                output_tokens_categories=output_tokens,
+            )
 
         logger.debug("GENERATE ANSWER: %s. QUERY: %s", start_time, query)
         try:

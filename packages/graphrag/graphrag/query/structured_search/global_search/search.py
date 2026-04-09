@@ -143,6 +143,7 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         self,
         query: str,
         conversation_history: ConversationHistory | None = None,
+        context_only: bool = False,
         **kwargs: Any,
     ) -> GlobalSearchResult:
         """
@@ -152,6 +153,9 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
 
         - Step 1: Run parallel LLM calls on communities' short summaries to generate answer for each batch
         - Step 2: Combine the answers from step 2 to generate the final answer
+
+        When context_only=True, skips both LLM steps and returns the assembled community
+        context directly. Use this to retrieve context for external LLM inference.
         """
         # Step 1: Generate answers for each batch of community short summaries
         llm_calls, prompt_tokens, output_tokens = {}, {}, {}
@@ -165,6 +169,20 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         llm_calls["build_context"] = context_result.llm_calls
         prompt_tokens["build_context"] = context_result.prompt_tokens
         output_tokens["build_context"] = context_result.output_tokens
+
+        if context_only:
+            return GlobalSearchResult(
+                response="",
+                context_data=context_result.context_records,
+                context_text=context_result.context_chunks,
+                map_responses=[],
+                reduce_context_data={},
+                reduce_context_text={},
+                completion_time=time.time() - start_time,
+                llm_calls=sum(llm_calls.values()),
+                prompt_tokens=sum(prompt_tokens.values()),
+                output_tokens=0,
+            )
 
         for callback in self.callbacks:
             callback.on_map_response_start(context_result.context_chunks)  # type: ignore
