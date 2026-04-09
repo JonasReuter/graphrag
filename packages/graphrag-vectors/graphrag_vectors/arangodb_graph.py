@@ -193,6 +193,134 @@ class ArangoDBGraphStore:
         except Exception as exc:
             logger.warning("Could not create community_reports index: %s", exc)
 
+    def _ensure_temporal_indexes(self) -> None:
+        """Add sparse persistent indexes for temporal fields (idempotent).
+
+        Sparse indexes skip documents that lack the indexed field, so
+        existing data without temporal fields is not affected.
+        """
+        _temporal_indexes = [
+            ("entities", "observed_at"),
+            ("entities", "last_observed_at"),
+            ("relationships", "observed_at"),
+            ("relationships", "last_observed_at"),
+            ("text_units", "created_at"),
+        ]
+        for coll_name, field_name in _temporal_indexes:
+            try:
+                coll = self._db.collection(coll_name)
+                idx_name = f"idx_{coll_name}_{field_name}"
+                existing_names = {
+                    idx.get("name") for idx in coll.indexes() if idx.get("name")
+                }
+                if idx_name not in existing_names:
+                    coll.add_persistent_index(
+                        fields=[field_name], sparse=True, name=idx_name
+                    )
+                    logger.info(
+                        "Temporal index %s created on %s.%s.",
+                        idx_name, coll_name, field_name,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Could not create temporal index on %s.%s: %s",
+                    coll_name, field_name, exc,
+                )
+
+    # ------------------------------------------------------------------
+    # Temporal query methods
+    # ------------------------------------------------------------------
+
+    def entity_timeline(
+        self,
+        entity_title: str,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Retrieve all relationships involving an entity, sorted chronologically.
+
+        Returns a list of dicts with ``edge`` and ``vertex`` keys.
+        Results are ordered by ``edge.observed_at`` ascending (oldest first).
+        """
+        aql = """
+            LET entity_doc = FIRST(
+                FOR e IN entities
+                    FILTER e.title == @title
+                    LIMIT 1
+                    RETURN e
+            )
+            FILTER entity_doc != null
+            FOR v, e IN 1..1 ANY entity_doc._id
+              GRAPH @graph
+              FILTER IS_SAME_COLLECTION("relationships", e)
+              SORT e.observed_at ASC
+              LIMIT @limit
+              RETURN {edge: e, vertex: v}
+        """
+        cursor = self._db.aql.execute(
+            aql,
+            bind_vars={
+                "title": entity_title,
+                "graph": self.graph_name,
+                "limit": limit,
+            },
+        )
+        return list(cursor)
+
+    def traverse_neighbors_temporal(
+        self,
+        entity_id: str,
+        depth: int = 2,
+        direction: str = "ANY",
+        time_from: str | None = None,
+        time_until: str | None = None,
+    ) -> tuple[list[dict], list[dict]]:
+        """K-hop graph traversal with optional temporal filtering on edges.
+
+        When ``time_from`` or ``time_until`` are set, only edges whose
+        ``observed_at`` falls within the range are traversed.
+        """
+        filters = []
+        if time_from:
+            filters.append("e.observed_at >= @time_from")
+        if time_until:
+            filters.append("e.observed_at <= @time_until")
+        filter_clause = (
+            f"FILTER {' AND '.join(filters)}" if filters else ""
+        )
+
+        aql = f"""
+            LET start_doc = DOCUMENT(@start)
+            LET start_row = [{{vertex: start_doc, edge: null}}]
+            LET neighbor_rows = (
+                FOR v, e IN 1..@depth {direction} @start
+                  GRAPH @graph
+                  OPTIONS {{bfs: true, uniqueVertices: "global"}}
+                  FILTER IS_SAME_COLLECTION("entities", v)
+                  {filter_clause}
+                  RETURN DISTINCT {{vertex: v, edge: e}}
+            )
+            FOR row IN APPEND(start_row, neighbor_rows)
+                RETURN row
+        """
+        bind_vars: dict = {
+            "depth": depth,
+            "start": f"entities/{entity_id}",
+            "graph": self.graph_name,
+        }
+        if time_from:
+            bind_vars["time_from"] = time_from
+        if time_until:
+            bind_vars["time_until"] = time_until
+
+        cursor = self._db.aql.execute(aql, bind_vars=bind_vars)
+        vertices, edges = [], []
+        for row in cursor:
+            if row.get("vertex"):
+                vertices.append(row["vertex"])
+            if row.get("edge"):
+                edges.append(row["edge"])
+        return vertices, edges
+
     # ------------------------------------------------------------------
     # Upsert helpers
     # ------------------------------------------------------------------
