@@ -23,6 +23,7 @@ from graphrag.prompts.query.drift_search_system_prompt import (
     DRIFT_REDUCE_PROMPT,
 )
 from graphrag.query.context_builder.entity_extraction import EntityVectorStoreKey
+from graphrag.query.context_builder.reranker import CohereReranker
 from graphrag.query.structured_search.base import DRIFTContextBuilder
 from graphrag.query.structured_search.drift_search.primer import PrimerQueryProcessor
 from graphrag.query.structured_search.local_search.mixed_context import (
@@ -56,6 +57,9 @@ class DRIFTSearchContextBuilder(DRIFTContextBuilder):
         local_mixed_context: LocalSearchMixedContext | None = None,
         reduce_system_prompt: str | None = None,
         response_type: str | None = None,
+        reranker: CohereReranker | None = None,
+        text_unit_embeddings: VectorStore | None = None,
+        direct_text_unit_search_k: int = 50,
     ):
         """Initialize the DRIFT search context builder with necessary components."""
         self.config = config
@@ -74,6 +78,9 @@ class DRIFTSearchContextBuilder(DRIFTContextBuilder):
         self.embedding_vectorstore_key = embedding_vectorstore_key
 
         self.response_type = response_type
+        self.reranker = reranker
+        self.text_unit_embeddings = text_unit_embeddings
+        self.direct_text_unit_search_k = direct_text_unit_search_k
 
         self.local_mixed_context = (
             local_mixed_context or self.init_local_context_builder()
@@ -97,6 +104,9 @@ class DRIFTSearchContextBuilder(DRIFTContextBuilder):
             embedding_vectorstore_key=self.embedding_vectorstore_key,
             text_embedder=self.text_embedder,
             tokenizer=self.tokenizer,
+            reranker=self.reranker,
+            text_unit_embeddings=self.text_unit_embeddings,
+            direct_text_unit_search_k=self.direct_text_unit_search_k,
         )
 
     @staticmethod
