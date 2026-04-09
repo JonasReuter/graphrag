@@ -37,9 +37,10 @@ async def extract_covariates(
     entity_types: list[str],
     num_threads: int,
     async_type: AsyncType,
+    resolved_entities_map: dict[str, str] | None = None,
 ):
     """Extract claims from a piece of text."""
-    resolved_entities_map = {}
+    resolved_entities_map = resolved_entities_map or {}
 
     async def run_strategy(row):
         text = row[column]

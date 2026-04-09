@@ -2,6 +2,10 @@
 # Licensed under the MIT License
 
 from graphrag.data_model.schemas import COVARIATES_FINAL_COLUMNS
+from graphrag.index.operations.extract_covariates.claim_extractor import (
+    ClaimExtractor,
+    _normalize,
+)
 from graphrag.index.workflows.extract_covariates import (
     run_workflow,
 )
@@ -14,6 +18,43 @@ from .util import (
     create_test_context,
     load_test_table,
 )
+
+def test_normalize():
+    """_normalize uppercases and replaces ß with SS."""
+    assert _normalize("Jochen Kreß") == "JOCHEN KRESS"
+    assert _normalize("ME-Meßsysteme GmbH") == "ME-MESSSYSTEME GMBH"
+    assert _normalize("ME-MESSSYSTEME GMBH") == "ME-MESSSYSTEME GMBH"
+    assert _normalize("  spaces  ") == "SPACES"
+    assert _normalize(None) == ""
+    assert _normalize("") == ""
+
+
+def test_clean_claim_normalizes_ss_variant():
+    """_clean_claim resolves ß-variant names to their canonical entity titles."""
+    resolved = {
+        "JOCHEN KRESS": "JOCHEN KRESS",       # canonical
+        "ME-MESSSYSTEME GMBH": "ME-MESSSYSTEME GMBH",  # canonical
+    }
+    claim = {
+        "subject_id": "JOCHEN KREß",           # ß-variant produced by LLM
+        "object_id": "ME-MEßSYSTEME GMBH",     # ß-variant produced by LLM
+    }
+    # ClaimExtractor needs a model — use None and call _clean_claim directly
+    extractor = ClaimExtractor.__new__(ClaimExtractor)
+    result = extractor._clean_claim(claim, "d0", resolved)
+    assert result["subject_id"] == "JOCHEN KRESS"
+    assert result["object_id"] == "ME-MESSSYSTEME GMBH"
+
+
+def test_clean_claim_unknown_entity_unchanged():
+    """_clean_claim leaves names unchanged when not in the resolved map."""
+    resolved = {"JOCHEN KRESS": "JOCHEN KRESS"}
+    claim = {"subject_id": "PATIENT/DROGAN", "object_id": "NONE"}
+    extractor = ClaimExtractor.__new__(ClaimExtractor)
+    result = extractor._clean_claim(claim, "d0", resolved)
+    assert result["subject_id"] == "PATIENT/DROGAN"
+    assert result["object_id"] == "NONE"
+
 
 MOCK_LLM_RESPONSES = [
     """

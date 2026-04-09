@@ -40,6 +40,22 @@ async def run_workflow(
         reader = DataReader(context.output_table_provider)
         text_units = await reader.text_units()
 
+        # Build entity lookup map from resolved entities so _clean_claim can
+        # normalize LLM-produced name variants (e.g. ß vs SS) back to canonical titles.
+        resolved_entities_map: dict[str, str] = {}
+        try:
+            entities = await reader.entities()
+            if entities is not None and "title" in entities.columns:
+                for title in entities["title"].dropna():
+                    canonical = str(title)
+                    # exact match
+                    resolved_entities_map[canonical] = canonical
+                    # ß-normalized variant → canonical
+                    normalized = canonical.upper().replace("ß", "SS").strip()
+                    resolved_entities_map[normalized] = canonical
+        except Exception:
+            logger.debug("No entities table found; skipping entity name normalization for claims.")
+
         model_config = config.get_completion_model_config(
             config.extract_claims.completion_model_id
         )
@@ -63,6 +79,7 @@ async def run_workflow(
             entity_types=DEFAULT_ENTITY_TYPES,
             num_threads=config.concurrent_requests,
             async_type=config.async_mode,
+            resolved_entities_map=resolved_entities_map,
         )
 
         await context.output_table_provider.write_dataframe("covariates", output)
@@ -82,6 +99,7 @@ async def extract_covariates(
     entity_types: list[str],
     num_threads: int,
     async_type: AsyncType,
+    resolved_entities_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """All the steps to extract and format covariates."""
     # reassign the id because it will be overwritten in the output by a covariate one
@@ -100,6 +118,7 @@ async def extract_covariates(
         entity_types=entity_types,
         num_threads=num_threads,
         async_type=async_type,
+        resolved_entities_map=resolved_entities_map,
     )
     text_units.drop(columns=["text_unit_id"], inplace=True)  # don't pollute the global
     covariates["id"] = covariates["covariate_type"].apply(lambda _x: str(uuid4()))
