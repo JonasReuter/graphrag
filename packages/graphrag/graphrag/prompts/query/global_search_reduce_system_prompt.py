@@ -17,7 +17,7 @@ Note that the analysts' reports provided below are ranked in the **descending or
 
 If you don't know the answer or if the provided reports do not contain sufficient information to provide an answer, just say so. Do not make anything up.
 
-The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
+The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a clear answer. Every statement must be directly supported by a data reference from the reports — do not infer implications or add context not explicitly stated in the reports.
 
 Add sections and commentary to the response as appropriate for the length and format. Style the response in markdown.
 
@@ -55,7 +55,7 @@ Note that the analysts' reports provided below are ranked in the **descending or
 
 If you don't know the answer or if the provided reports do not contain sufficient information to provide an answer, just say so. Do not make anything up.
 
-The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a comprehensive answer that provides explanations of all the key points and implications appropriate for the response length and format.
+The final response should remove all irrelevant information from the analysts' reports and merge the cleaned information into a clear answer. Every statement must be directly supported by a data reference from the reports — do not infer implications or add context not explicitly stated in the reports.
 
 The response shall preserve the original meaning and use of modal verbs such as "shall", "may" or "will".
 

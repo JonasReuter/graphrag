@@ -6,7 +6,7 @@ COMMUNITY_REPORT_PROMPT = """
 You are an AI assistant that helps a human analyst to perform general information discovery. Information discovery is the process of identifying and assessing relevant information associated with certain entities (e.g., organizations and individuals) within a network.
 
 # Goal
-Write a comprehensive report of a community, given a list of entities that belong to the community as well as their relationships and optional associated claims. The report will be used to inform decision-makers about information associated with the community and their potential impact. The content of this report includes an overview of the community's key entities, their legal compliance, technical capabilities, reputation, and noteworthy claims.
+Write a factual report of a community, given a list of entities that belong to the community as well as their relationships and optional associated claims. The report will be used to inform decision-makers about information associated with the community and their potential impact. The content of this report includes an overview of the community's key entities, their legal compliance, technical capabilities, reputation, and noteworthy claims. Only include information explicitly present in the provided data — do not infer, speculate, or add context not grounded in the data.
 
 # Report Structure
 
@@ -16,7 +16,7 @@ The report should include the following sections:
 - SUMMARY: An executive summary of the community's overall structure, how its entities are related to each other, and significant information associated with its entities.
 - IMPACT SEVERITY RATING: a float score between 0-10 that represents the severity of IMPACT posed by entities within the community.  IMPACT is the scored importance of a community.
 - RATING EXPLANATION: Give a single sentence explanation of the IMPACT severity rating.
-- DETAILED FINDINGS: A list of 5-10 key insights about the community. Each insight should have a short summary followed by multiple paragraphs of explanatory text grounded according to the grounding rules below. Be comprehensive.
+- DETAILED FINDINGS: A list of 5-10 key insights about the community. Each insight should have a short summary followed by explanatory text grounded according to the grounding rules below. Every statement must be directly supported by a data reference — do not speculate or infer beyond what the data states.
 
 Return output as a well-formed JSON-formatted string with the following format:
     {{
@@ -113,7 +113,7 @@ The report should include the following sections:
 - SUMMARY: An executive summary of the community's overall structure, how its entities are related to each other, and significant information associated with its entities.
 - IMPACT SEVERITY RATING: a float score between 0-10 that represents the severity of IMPACT posed by entities within the community.  IMPACT is the scored importance of a community.
 - RATING EXPLANATION: Give a single sentence explanation of the IMPACT severity rating.
-- DETAILED FINDINGS: A list of 5-10 key insights about the community. Each insight should have a short summary followed by multiple paragraphs of explanatory text grounded according to the grounding rules below. Be comprehensive.
+- DETAILED FINDINGS: A list of 5-10 key insights about the community. Each insight should have a short summary followed by explanatory text grounded according to the grounding rules below. Every statement must be directly supported by a data reference — do not speculate or infer beyond what the data states.
 
 Return output as a well-formed JSON-formatted string with the following format:
     {{
