@@ -10,6 +10,7 @@ from graphrag_vectors import VectorStore
 
 from graphrag.data_model.entity import Entity
 from graphrag.data_model.relationship import Relationship
+from graphrag.data_model.text_unit import TextUnit
 from graphrag.query.input.retrieval.entities import (
     get_entity_by_id,
     get_entity_by_key,
@@ -94,6 +95,46 @@ def map_query_to_entities(
     for entity_name in include_entity_names:
         included_entities.extend(get_entity_by_name(all_entities, entity_name))
     return included_entities + matched_entities
+
+
+def map_query_to_text_units(
+    query: str,
+    text_unit_vectorstore: VectorStore,
+    text_embedder: "LLMEmbedding",
+    all_text_units: dict[str, TextUnit],
+    k: int = 50,
+) -> list[TextUnit]:
+    """Retrieve text units most semantically similar to the query.
+
+    Direct vector search on the text unit embedding store (Path B retrieval).
+    Complements the entity-driven path (Path A) to form a larger candidate pool
+    for reranking.
+
+    Args:
+        query: The search query.
+        text_unit_vectorstore: VectorStore indexed on text unit content.
+        text_embedder: Embedding model used to embed the query.
+        all_text_units: Dict mapping text unit ID → TextUnit object.
+        k: Number of top text units to retrieve.
+
+    Returns:
+        List of TextUnit objects sorted by semantic similarity (highest first).
+    """
+    if not query:
+        return []
+
+    search_results = text_unit_vectorstore.similarity_search_by_text(
+        text=query,
+        text_embedder=lambda t: text_embedder.embedding(input=[t]).first_embedding,
+        k=k,
+    )
+
+    matched = []
+    for result in search_results:
+        unit_id = result.document.id
+        if isinstance(unit_id, str) and unit_id in all_text_units:
+            matched.append(all_text_units[unit_id])
+    return matched
 
 
 def find_nearest_neighbors_by_entity_rank(

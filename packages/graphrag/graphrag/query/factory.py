@@ -9,6 +9,7 @@ from graphrag_vectors import VectorStore
 
 from graphrag.callbacks.query_callbacks import QueryCallbacks
 from graphrag.config.models.graph_rag_config import GraphRagConfig
+from graphrag.query.context_builder.reranker import CohereReranker
 from graphrag.data_model.community import Community
 from graphrag.data_model.community_report import CommunityReport
 from graphrag.data_model.covariate import Covariate
@@ -48,6 +49,7 @@ def get_local_search_engine(
     description_embedding_store: VectorStore,
     system_prompt: str | None = None,
     callbacks: list[QueryCallbacks] | None = None,
+    text_unit_embeddings: VectorStore | None = None,
 ) -> LocalSearch:
     """Create a local search engine based on data + configuration."""
     model_settings = config.get_completion_model_config(
@@ -68,6 +70,13 @@ def get_local_search_engine(
 
     model_params = model_settings.call_args
 
+    reranker: CohereReranker | None = None
+    if ls_config.rerank.enabled:
+        reranker = CohereReranker(
+            api_key=ls_config.rerank.api_key,
+            model=ls_config.rerank.model,
+        )
+
     return LocalSearch(
         model=chat_model,
         system_prompt=system_prompt,
@@ -81,6 +90,9 @@ def get_local_search_engine(
             embedding_vectorstore_key=EntityVectorStoreKey.ID,  # if the vectorstore uses entity title as ids, set this to EntityVectorStoreKey.TITLE
             text_embedder=embedding_model,
             tokenizer=tokenizer,
+            text_unit_embeddings=text_unit_embeddings,
+            reranker=reranker,
+            direct_text_unit_search_k=ls_config.rerank.direct_text_unit_search_k,
         ),
         tokenizer=tokenizer,
         model_params=model_params,
@@ -110,6 +122,7 @@ def get_arangodb_local_search_engine(
     text_units: list[TextUnit] | None = None,
     system_prompt: str | None = None,
     callbacks: list[QueryCallbacks] | None = None,
+    text_unit_embeddings: VectorStore | None = None,
 ) -> LocalSearch:
     """Create a local search engine backed by ArangoDB native graph traversal.
 
@@ -147,6 +160,13 @@ def get_arangodb_local_search_engine(
     )
     graph_store.connect()
 
+    arangodb_reranker: CohereReranker | None = None
+    if ls_config.rerank.enabled:
+        arangodb_reranker = CohereReranker(
+            api_key=ls_config.rerank.api_key,
+            model=ls_config.rerank.model,
+        )
+
     return LocalSearch(
         model=chat_model,
         system_prompt=system_prompt,
@@ -160,6 +180,9 @@ def get_arangodb_local_search_engine(
             traversal_depth=graph_cfg.traversal_depth,
             top_k_seeds=graph_cfg.top_k_seeds,
             use_hybrid_search=graph_cfg.store_vectors,
+            reranker=arangodb_reranker,
+            text_unit_embeddings=text_unit_embeddings,
+            direct_text_unit_search_k=ls_config.rerank.direct_text_unit_search_k,
         ),
         tokenizer=tokenizer,
         model_params=model_settings.call_args,

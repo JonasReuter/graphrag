@@ -59,6 +59,11 @@ dependencies = [
     "typer~=0.16",
 ]
 
+[project.optional-dependencies]
+reranker = [
+    "cohere>=5.0",
+]
+
 [project.scripts]
 graphrag = "graphrag.cli.main:app"
 
