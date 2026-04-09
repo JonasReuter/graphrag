@@ -65,13 +65,18 @@ class ArangoDBVectorStore(VectorStore):
         self._ensure_vector_index()
 
     def _ensure_vector_index(self) -> None:
-        """Create the HNSW vector index if it does not already exist."""
-        existing = [
-            idx
-            for idx in self._collection.indexes()
-            if idx.get("type") == "vector"
+        """Create the HNSW vector index if it does not already exist.
+
+        ArangoDB builds vector indexes asynchronously and returns ERR 1555 while
+        the index is building over existing data. We treat ERR 1555 as a soft
+        warning — the index will be ready shortly and similarity_search_by_vector
+        falls back to local search in the meantime.
+        """
+        existing = any(
+            idx.get("type") == "vector"
             and self.vector_field in idx.get("fields", [])
-        ]
+            for idx in self._collection.indexes()
+        )
         if existing:
             return
 
@@ -88,6 +93,9 @@ class ArangoDBVectorStore(VectorStore):
                 }
             )
         except Exception as exc:  # noqa: BLE001
+            if "1555" in str(exc):
+                # Index is building asynchronously — search fallback handles this
+                return
             msg = (
                 f"Failed to create vector index on collection '{self.index_name}'. "
                 "Ensure ArangoDB >= 3.12 with vector search enabled. "
@@ -119,7 +127,7 @@ class ArangoDBVectorStore(VectorStore):
             self._upsert_batch(batch)
 
     def _upsert_batch(self, batch: list[dict[str, Any]]) -> None:
-        self._collection.import_bulk(batch, on_duplicate="replace", complete=True)
+        self._collection.import_bulk(batch, on_duplicate="replace", halt_on_error=True)
 
     def _to_arango_doc(self, document: VectorStoreDocument) -> dict[str, Any]:
         """Convert a VectorStoreDocument to an ArangoDB document dict."""
