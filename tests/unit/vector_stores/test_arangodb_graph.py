@@ -651,3 +651,67 @@ class TestUpsertCovariates:
         edge_batch = captured_batches[1]
         assert edge_batch[0]["_from"] == "entities/uuid-a"
         assert edge_batch[0]["_to"] == "covariates/cov-1"
+
+
+# ---------------------------------------------------------------------------
+# get_all_covariates() — direct collection scan with optional filters
+# ---------------------------------------------------------------------------
+
+class TestGetAllCovariates:
+    def _make_aql_result(self, rows):
+        return iter(rows)
+
+    def test_returns_all_when_no_filters(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = self._make_aql_result([
+            {"id": "c1", "customer": "CUSTOMER A", "type": "SUPPORT_CASE"},
+            {"id": "c2", "customer": "CUSTOMER B", "type": "PURCHASE"},
+        ])
+        result = store.get_all_covariates()
+        assert len(result) == 2
+        _, kwargs = db.aql.execute.call_args
+        bind_vars = kwargs.get("bind_vars") or db.aql.execute.call_args[0][1]
+        assert bind_vars["subject"] is None
+        assert bind_vars["covariate_type"] is None
+        assert bind_vars["status"] is None
+
+    def test_subject_filter_passed_as_bind_var(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([])
+        store.get_all_covariates(subject="CUSTOMER A")
+        _, kwargs = db.aql.execute.call_args
+        bind_vars = kwargs.get("bind_vars") or db.aql.execute.call_args[0][1]
+        assert bind_vars["subject"] == "CUSTOMER A"
+
+    def test_covariate_type_filter_passed_as_bind_var(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([])
+        store.get_all_covariates(covariate_type="PURCHASE")
+        _, kwargs = db.aql.execute.call_args
+        bind_vars = kwargs.get("bind_vars") or db.aql.execute.call_args[0][1]
+        assert bind_vars["covariate_type"] == "PURCHASE"
+
+    def test_status_filter_passed_as_bind_var(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([])
+        store.get_all_covariates(status="CONFIRMED")
+        _, kwargs = db.aql.execute.call_args
+        bind_vars = kwargs.get("bind_vars") or db.aql.execute.call_args[0][1]
+        assert bind_vars["status"] == "CONFIRMED"
+
+    def test_returns_list_of_dicts(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        row = {
+            "id": "c1", "customer": "CUSTOMER B", "type": "PURCHASE",
+            "status": "CONFIRMED", "start_date": "2025-01-24T00:00:00",
+            "end_date": "2025-01-24T00:00:00", "description": "Purchased K6D40",
+            "source_text": "...",
+        }
+        db.aql.execute.return_value = iter([row])
+        result = store.get_all_covariates()
+        assert result == [row]
