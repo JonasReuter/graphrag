@@ -371,6 +371,127 @@ def run_basic_search(
     return response, context_data
 
 
+def run_drift_graph_search(
+    data_dir: Path | None,
+    root_dir: Path,
+    community_level: int,
+    response_type: str,
+    streaming: bool,
+    query: str,
+    verbose: bool,
+):
+    """Perform a DRIFT search using ArangoDB as single source of truth.
+
+    No parquet files are loaded. Community reports, entities, relationships,
+    text units, and covariates are all fetched live from ArangoDB via AQL.
+    """
+    cli_overrides: dict[str, Any] = {}
+    if data_dir:
+        cli_overrides["output_storage"] = {"base_dir": str(data_dir)}
+    config = load_config(root_dir=root_dir, cli_overrides=cli_overrides)
+
+    if streaming:
+
+        async def run_streaming_search():
+            full_response = ""
+            context_data = {}
+
+            def on_context(context: Any) -> None:
+                nonlocal context_data
+                context_data = context
+
+            callbacks = NoopQueryCallbacks()
+            callbacks.on_context = on_context
+
+            async for stream_chunk in api.drift_graph_search_streaming(
+                config=config,
+                response_type=response_type,
+                query=query,
+                callbacks=[callbacks],
+                verbose=verbose,
+            ):
+                full_response += stream_chunk
+                print(stream_chunk, end="")
+                sys.stdout.flush()
+            print()
+            return full_response, context_data
+
+        return asyncio.run(run_streaming_search())
+
+    response, context_data = asyncio.run(
+        api.drift_graph_search(
+            config=config,
+            response_type=response_type,
+            query=query,
+            verbose=verbose,
+        )
+    )
+    print(response)
+    return response, context_data
+
+
+def run_graph_search(
+    data_dir: Path | None,
+    root_dir: Path,
+    community_level: int,
+    response_type: str,
+    streaming: bool,
+    query: str,
+    verbose: bool,
+):
+    """Perform a graph search using ArangoDB as single source of truth.
+
+    No parquet files are loaded. All data is fetched live from ArangoDB via AQL.
+    """
+    cli_overrides: dict[str, Any] = {}
+    if data_dir:
+        cli_overrides["output_storage"] = {"base_dir": str(data_dir)}
+    config = load_config(
+        root_dir=root_dir,
+        cli_overrides=cli_overrides,
+    )
+
+    if streaming:
+
+        async def run_streaming_search():
+            full_response = ""
+            context_data = {}
+
+            def on_context(context: Any) -> None:
+                nonlocal context_data
+                context_data = context
+
+            callbacks = NoopQueryCallbacks()
+            callbacks.on_context = on_context
+
+            async for stream_chunk in api.graph_search_streaming(
+                config=config,
+                response_type=response_type,
+                query=query,
+                callbacks=[callbacks],
+                verbose=verbose,
+            ):
+                full_response += stream_chunk
+                print(stream_chunk, end="")
+                sys.stdout.flush()
+            print()
+            return full_response, context_data
+
+        return asyncio.run(run_streaming_search())
+
+    response, context_data = asyncio.run(
+        api.graph_search(
+            config=config,
+            response_type=response_type,
+            query=query,
+            verbose=verbose,
+        )
+    )
+    print(response)
+
+    return response, context_data
+
+
 def _resolve_output_files(
     config: GraphRagConfig,
     output_list: list[str],

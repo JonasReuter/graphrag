@@ -99,33 +99,45 @@ class ArangoDBGraphRetriever:
         """Retrieve community reports for a list of entities via graph edges."""
         entity_ids = [e.id for e in entities]
         docs = self.graph_store.get_community_reports_for_entities(entity_ids)
-        seen: set[str] = set()
-        reports: list[CommunityReport] = []
-        for doc in docs:
-            doc_id = str(doc.get("id", doc.get("_key", "")))
-            if doc_id and doc_id not in seen:
-                seen.add(doc_id)
-                try:
-                    reports.append(_doc_to_community_report(doc))
-                except (KeyError, TypeError) as exc:
-                    logger.debug("Skipping malformed community report doc: %s", exc)
-        return reports
+        return _docs_to_community_reports(docs)
+
+    def get_all_community_reports(self) -> list[CommunityReport]:
+        """Retrieve all community reports from ArangoDB (for DRIFT primer phase etc.)."""
+        docs = self.graph_store.get_all_community_reports()
+        return _docs_to_community_reports(docs)
 
 
 # ---------------------------------------------------------------------------
 # Document → domain object converters
 # ---------------------------------------------------------------------------
 
+def _docs_to_community_reports(docs: list[dict]) -> list[CommunityReport]:
+    """Convert a list of raw ArangoDB community report docs, deduplicating by id."""
+    seen: set[str] = set()
+    reports: list[CommunityReport] = []
+    for doc in docs:
+        doc_id = str(doc.get("id", doc.get("_key", "")))
+        if doc_id and doc_id not in seen:
+            seen.add(doc_id)
+            try:
+                reports.append(_doc_to_community_report(doc))
+            except (KeyError, TypeError) as exc:
+                logger.debug("Skipping malformed community report doc: %s", exc)
+    return reports
+
 def _doc_to_entity(doc: dict[str, Any]) -> Entity:
     """Convert a raw ArangoDB entity document to an Entity domain object."""
+    raw_community_ids = doc.get("community_ids") or []
+    raw_text_unit_ids = doc.get("text_unit_ids") or []
+    raw_short_id = doc.get("human_readable_id")
     return Entity(
         id=str(doc.get("id", doc.get("_key", ""))),
-        short_id=doc.get("human_readable_id"),
+        short_id=str(raw_short_id) if raw_short_id is not None else None,
         title=str(doc.get("title", "")),
         type=doc.get("type"),
         description=doc.get("description"),
-        community_ids=doc.get("community_ids"),
-        text_unit_ids=doc.get("text_unit_ids"),
+        community_ids=[str(c) for c in raw_community_ids],
+        text_unit_ids=[str(t) for t in raw_text_unit_ids],
         rank=int(doc["degree"]) if doc.get("degree") is not None else 1,
     )
 
@@ -137,9 +149,10 @@ def _doc_to_relationship(doc: dict[str, Any]) -> Relationship:
     (copied from the relationship row during indexing), so they map
     correctly to the Relationship.source/target fields.
     """
+    raw_short_id_rel = doc.get("human_readable_id")
     return Relationship(
         id=str(doc.get("id", doc.get("_key", ""))),
-        short_id=doc.get("human_readable_id"),
+        short_id=str(raw_short_id_rel) if raw_short_id_rel is not None else None,
         source=str(doc.get("source", "")),
         target=str(doc.get("target", "")),
         weight=float(doc["weight"]) if doc.get("weight") is not None else 1.0,
@@ -151,9 +164,10 @@ def _doc_to_relationship(doc: dict[str, Any]) -> Relationship:
 
 def _doc_to_community_report(doc: dict[str, Any]) -> CommunityReport:
     """Convert a raw ArangoDB community report document to a CommunityReport domain object."""
+    raw_short_id_cr = doc.get("human_readable_id")
     return CommunityReport(
         id=str(doc.get("id", doc.get("_key", ""))),
-        short_id=doc.get("human_readable_id"),
+        short_id=str(raw_short_id_cr) if raw_short_id_cr is not None else None,
         title=str(doc.get("title", "")),
         community_id=str(doc.get("community", "")),
         summary=str(doc.get("summary", "")),

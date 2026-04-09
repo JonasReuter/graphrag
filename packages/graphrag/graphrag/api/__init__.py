@@ -12,10 +12,14 @@ from graphrag.api.prompt_tune import generate_indexing_prompts
 from graphrag.api.query import (
     basic_search,
     basic_search_streaming,
+    drift_graph_search,
+    drift_graph_search_streaming,
     drift_search,
     drift_search_streaming,
     global_search,
     global_search_streaming,
+    graph_search,
+    graph_search_streaming,
     local_search,
     local_search_streaming,
 )
@@ -33,6 +37,10 @@ __all__ = [  # noqa: RUF022
     "drift_search_streaming",
     "basic_search",
     "basic_search_streaming",
+    "graph_search",
+    "graph_search_streaming",
+    "drift_graph_search",
+    "drift_graph_search_streaming",
     # prompt tuning API
     "DocSelectionType",
     "generate_indexing_prompts",

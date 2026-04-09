@@ -431,8 +431,10 @@ def _query_cli(
     """Query a knowledge graph index."""
     from graphrag.cli.query import (
         run_basic_search,
+        run_drift_graph_search,
         run_drift_search,
         run_global_search,
+        run_graph_search,
         run_local_search,
     )
 
@@ -472,6 +474,26 @@ def _query_cli(
             run_basic_search(
                 data_dir=data,
                 root_dir=root,
+                response_type=response_type,
+                streaming=streaming,
+                query=query,
+                verbose=verbose,
+            )
+        case SearchMethod.DRIFT_GRAPH:
+            run_drift_graph_search(
+                data_dir=data,
+                root_dir=root,
+                community_level=community_level,
+                response_type=response_type,
+                streaming=streaming,
+                query=query,
+                verbose=verbose,
+            )
+        case SearchMethod.GRAPH:
+            run_graph_search(
+                data_dir=data,
+                root_dir=root,
+                community_level=community_level,
                 response_type=response_type,
                 streaming=streaming,
                 query=query,

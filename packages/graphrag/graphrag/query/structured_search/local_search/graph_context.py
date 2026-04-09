@@ -26,6 +26,7 @@ from graphrag.query.context_builder.entity_extraction import (
     map_query_to_entities,
 )
 from graphrag.query.context_builder.local_context import (
+    build_covariates_context,
     build_entity_context,
     build_relationship_context,
 )
@@ -233,18 +234,32 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             final_context.append(local_context)
             final_context_data = {**final_context_data, **local_context_data}
 
-        # Text unit context (only if text units were provided at construction)
-        if self.text_units:
-            text_unit_tokens = max(int(max_context_tokens * text_unit_prop), 0)
-            text_unit_context, text_unit_context_data = self._build_text_unit_context(
-                selected_entities=selected_entities,
-                relationships=relationships,
-                max_context_tokens=text_unit_tokens,
-                column_delimiter=column_delimiter,
-            )
-            if text_unit_context.strip():
-                final_context.append(text_unit_context)
-                final_context_data = {**final_context_data, **text_unit_context_data}
+        # Text unit context — fetched from ArangoDB via entity_text_unit edges
+        text_unit_tokens = max(int(max_context_tokens * text_unit_prop), 0)
+        text_unit_context, text_unit_context_data = self._build_text_unit_context(
+            selected_entities=selected_entities,
+            relationships=relationships,
+            max_context_tokens=text_unit_tokens,
+            column_delimiter=column_delimiter,
+        )
+        if text_unit_context.strip():
+            final_context.append(text_unit_context)
+            final_context_data = {**final_context_data, **text_unit_context_data}
+
+        # Covariate context — fetched from ArangoDB via entity_covariate edges
+        covariates = self._fetch_covariates_from_graph(selected_entities)
+        if covariates:
+            for cov_type, cov_list in covariates.items():
+                cov_context, cov_context_data = build_covariates_context(
+                    selected_entities=selected_entities,
+                    covariates=cov_list,
+                    tokenizer=self.tokenizer,
+                    max_context_tokens=local_tokens,
+                    context_name=cov_type,
+                )
+                if cov_context.strip():
+                    final_context.append(cov_context)
+                    final_context_data = {**final_context_data, **cov_context_data}
 
         return ContextBuilderResult(
             context_chunks="\n\n".join(final_context),
@@ -265,7 +280,9 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         if self.use_hybrid_search:
             # Combined vector + graph in one AQL query
             try:
-                query_embedding = self.text_embedder.embed_query(query)
+                emb_response = self.text_embedder.embedding(input=[query])
+                raw = emb_response.first_embedding
+                query_embedding = raw.tolist() if hasattr(raw, "tolist") else list(raw)
                 return self.retriever.hybrid_retrieve(
                     query_vector=query_embedding,
                     depth=depth,
@@ -364,6 +381,14 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         )
         entity_tokens = len(self.tokenizer.encode(entity_context))
 
+        # Pre-filter: only keep relationships where at least one endpoint is a selected entity.
+        # Graph traversal may return edges between non-selected neighbors — those are noise.
+        selected_titles = {e.title for e in selected_entities}
+        relationships = [
+            r for r in relationships
+            if r.source in selected_titles or r.target in selected_titles
+        ]
+
         added_entities: list[Entity] = []
         final_rel_context = ""
         final_context_data: dict[str, pd.DataFrame] = {}
@@ -393,6 +418,46 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         final_context_data["entities"] = entity_context_data
         return (full_text, final_context_data)
 
+    def _fetch_text_units_from_graph(self, selected_entities: list[Entity]) -> dict[str, TextUnit]:
+        """Fetch text units from ArangoDB via entity_text_unit edges, return id→TextUnit dict."""
+        entity_ids = [e.id for e in selected_entities if e.id]
+        docs = self.graph_store.get_text_units_for_entities(entity_ids)
+        result = {}
+        for doc in docs:
+            unit_id = str(doc.get("id", doc.get("_key", "")))
+            raw_short = doc.get("human_readable_id")
+            if unit_id and doc.get("text"):
+                result[unit_id] = TextUnit(
+                    id=unit_id,
+                    short_id=str(raw_short) if raw_short is not None else None,
+                    text=str(doc["text"]),
+                    n_tokens=doc.get("n_tokens"),
+                    document_id=doc.get("document_id"),
+                )
+        return result
+
+    def _fetch_covariates_from_graph(
+        self, selected_entities: list[Entity]
+    ) -> dict[str, list[Covariate]]:
+        """Fetch covariates from ArangoDB via entity_covariate edges, grouped by type."""
+        entity_ids = [e.id for e in selected_entities if e.id]
+        docs = self.graph_store.get_covariates_for_entities(entity_ids)
+        result: dict[str, list[Covariate]] = {}
+        for doc in docs:
+            cov_type = str(doc.get("covariate_type", "claim"))
+            raw_short = doc.get("human_readable_id")
+            cov = Covariate(
+                id=str(doc.get("id", doc.get("_key", ""))),
+                short_id=str(raw_short) if raw_short is not None else None,
+                subject_id=str(doc.get("subject_id", "")),
+                subject_type=str(doc.get("subject_type", "entity")),
+                covariate_type=cov_type,
+                text_unit_ids=doc.get("text_unit_ids"),
+                attributes=doc.get("attributes"),
+            )
+            result.setdefault(cov_type, []).append(cov)
+        return result
+
     def _build_text_unit_context(
         self,
         selected_entities: list[Entity],
@@ -401,8 +466,16 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         column_delimiter: str = "|",
         context_name: str = "Sources",
     ) -> tuple[str, dict[str, pd.DataFrame]]:
-        """Format text units associated with selected entities."""
-        if not selected_entities or not self.text_units:
+        """Format text units associated with selected entities.
+
+        Uses ArangoDB graph traversal when text_units were not pre-loaded at construction.
+        """
+        if not selected_entities:
+            return ("", {context_name.lower(): pd.DataFrame()})
+
+        # Prefer pre-loaded dict; fall back to ArangoDB graph traversal
+        text_units = self.text_units or self._fetch_text_units_from_graph(selected_entities)
+        if not text_units:
             return ("", {context_name.lower(): pd.DataFrame()})
 
         unit_info_list = []
@@ -414,8 +487,8 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
                 if rel.source == entity.title or rel.target == entity.title
             ]
             for text_id in entity.text_unit_ids or []:
-                if text_id not in text_unit_ids_seen and text_id in self.text_units:
-                    selected_unit = deepcopy(self.text_units[text_id])
+                if text_id not in text_unit_ids_seen and text_id in text_units:
+                    selected_unit = deepcopy(text_units[text_id])
                     num_relationships = count_relationships(entity_relationships, selected_unit)
                     text_unit_ids_seen.add(text_id)
                     unit_info_list.append((selected_unit, index, num_relationships))
