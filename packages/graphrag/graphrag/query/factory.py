@@ -9,6 +9,7 @@ from graphrag_vectors import VectorStore
 
 from graphrag.callbacks.query_callbacks import QueryCallbacks
 from graphrag.config.models.graph_rag_config import GraphRagConfig
+from graphrag.query.indexer_adapters import read_indexer_report_embeddings
 from graphrag.query.context_builder.reranker import CohereReranker
 from graphrag.data_model.community import Community
 from graphrag.data_model.community_report import CommunityReport
@@ -348,6 +349,7 @@ def get_drift_graph_search_engine(
     local_system_prompt: str | None = None,
     reduce_system_prompt: str | None = None,
     callbacks: list[QueryCallbacks] | None = None,
+    full_content_embedding_store: "VectorStore | None" = None,
 ) -> DRIFTSearch:
     """Create a DRIFT search engine backed by ArangoDB native graph traversal.
 
@@ -387,6 +389,14 @@ def get_drift_graph_search_engine(
     # Load all community reports from ArangoDB for DRIFT global priming
     retriever = ArangoDBGraphRetriever(graph_store)
     reports = retriever.get_all_community_reports()
+
+    # Load full_content embeddings from vector store into report objects.
+    # DRIFTSearchContextBuilder requires these for the global priming phase.
+    # ArangoDB stores community reports for all hierarchy levels, but embeddings
+    # are only generated for the final (highest) level — filter out the rest.
+    if full_content_embedding_store is not None:
+        read_indexer_report_embeddings(reports, full_content_embedding_store)
+    reports = [r for r in reports if r.full_content_embedding is not None]
 
     drift_graph_ls_config = config.local_search
     drift_graph_reranker: CohereReranker | None = None
