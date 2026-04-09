@@ -126,7 +126,7 @@ drift_search:
 graphrag query \
   --root ./my-project \
   --method drift-graph \
-  "What quality assurance processes does ME-Meßsysteme use for sensor calibration?"
+  "What quality assurance processes does company use for sensor calibration?"
 ```
 
 With streaming:
@@ -136,7 +136,7 @@ graphrag query \
   --root ./my-project \
   --method drift-graph \
   --streaming \
-  "How do the K6D sensor variants compare in terms of measurement accuracy?"
+  "How do the sensor variants compare in terms of measurement accuracy?"
 ```
 
 ## Comparison
