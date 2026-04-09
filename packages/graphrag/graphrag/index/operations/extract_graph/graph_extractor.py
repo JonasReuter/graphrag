@@ -62,6 +62,7 @@ class GraphExtractor:
         entity_types: list[str],
         source_id: str,
         extract_evidence: bool = False,
+        extract_temporal: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Extract entities, relationships, and optionally evidence from the supplied text."""
         try:
@@ -89,6 +90,7 @@ class GraphExtractor:
             TUPLE_DELIMITER,
             RECORD_DELIMITER,
             extract_evidence=extract_evidence,
+            extract_temporal=extract_temporal,
         )
 
     async def _process_document(self, text: str, entity_types: list[str]) -> str:
@@ -137,6 +139,7 @@ class GraphExtractor:
         tuple_delimiter: str,
         record_delimiter: str,
         extract_evidence: bool = False,
+        extract_temporal: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Parse the result string into entity, relationship, and evidence data frames."""
         entities: list[dict[str, Any]] = []
@@ -157,12 +160,22 @@ class GraphExtractor:
                 entity_name = clean_str(record_attributes[1].upper())
                 entity_type = clean_str(record_attributes[2].upper())
                 entity_description = clean_str(record_attributes[3])
-                entities.append({
+                entity_dict: dict[str, Any] = {
                     "title": entity_name,
                     "type": entity_type,
                     "description": entity_description,
                     "source_id": source_id,
-                })
+                }
+
+                # Temporal-enhanced format: entity has temporal_scope at index 4
+                # (5 fields total). Only applies when NOT using evidence format
+                # (evidence has 7 fields with confidence/completeness/source_span).
+                if extract_temporal and not extract_evidence and len(record_attributes) >= 5:
+                    temporal_scope = clean_str(record_attributes[4])
+                    if temporal_scope:
+                        entity_dict["temporal_scope"] = temporal_scope
+
+                entities.append(entity_dict)
 
                 # Extract evidence fields if present (evidence-enhanced prompt)
                 if extract_evidence:
@@ -198,6 +211,7 @@ class GraphExtractor:
                 confidence = 0.5
                 completeness = "unknown"
                 source_span = None
+                temporal_scope_rel = None
 
                 if extract_evidence and len(record_attributes) >= 8:
                     # Evidence-enhanced format: description, weight, confidence, completeness, source_quote
@@ -214,6 +228,13 @@ class GraphExtractor:
                     if completeness not in ("complete", "partial", "inferred"):
                         completeness = "unknown"
                     source_span = clean_str(record_attributes[7])
+                elif extract_temporal and len(record_attributes) >= 6:
+                    # Temporal format: source, target, description, weight, temporal_scope
+                    try:
+                        weight = float(clean_str(record_attributes[4]))
+                    except ValueError:
+                        weight = 1.0
+                    temporal_scope_rel = clean_str(record_attributes[5])
                 else:
                     # Original format: weight is last field
                     try:
@@ -221,13 +242,17 @@ class GraphExtractor:
                     except ValueError:
                         weight = 1.0
 
-                relationships.append({
+                rel_dict: dict[str, Any] = {
                     "source": source,
                     "target": target,
                     "description": edge_description,
                     "source_id": source_id,
                     "weight": weight,
-                })
+                }
+                if temporal_scope_rel:
+                    rel_dict["temporal_scope"] = temporal_scope_rel
+
+                relationships.append(rel_dict)
 
                 if extract_evidence:
                     evidence.append({
