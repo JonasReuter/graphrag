@@ -13,6 +13,8 @@ from graphrag.data_model.relationship import Relationship
 from graphrag.data_model.text_unit import TextUnit
 from graphrag.tokenizer.get_tokenizer import get_tokenizer
 
+_RELATIONSHIP_IDS_COL = "relationship_ids"
+
 """
 Contain util functions to build text unit context for the search's system prompt
 """
@@ -26,8 +28,15 @@ def build_text_unit_context(
     max_context_tokens: int = 8000,
     context_name: str = "Sources",
     random_state: int = 86,
+    relationships: dict[str, Relationship] | None = None,
 ) -> tuple[str, dict[str, pd.DataFrame]]:
-    """Prepare text-unit data table as context data for system prompt."""
+    """Prepare text-unit data table as context data for system prompt.
+
+    When relationships is provided, a relationship_ids column is appended to each row,
+    listing the short_ids of relationships that appear in that text unit.
+    This implements the "linked tables" provenance design: the Sources table cross-references
+    the Relationships table, making provenance explicit for the LLM.
+    """
     tokenizer = tokenizer or get_tokenizer()
     if text_units is None or len(text_units) == 0:
         return ("", {})
@@ -35,6 +44,15 @@ def build_text_unit_context(
     if shuffle_data:
         random.seed(random_state)
         random.shuffle(text_units)
+
+    include_relationship_ids = relationships is not None
+
+    # build a lookup: relationship UUID → short_id (for cross-reference)
+    rel_id_to_short: dict[str, str] = {}
+    if include_relationship_ids:
+        for rel_id, rel in (relationships or {}).items():
+            if rel.short_id:
+                rel_id_to_short[rel_id] = rel.short_id
 
     # add context header
     current_context_text = f"-----{context_name}-----" + "\n"
@@ -46,6 +64,8 @@ def build_text_unit_context(
     )
     attribute_cols = [col for col in attribute_cols if col not in header]
     header.extend(attribute_cols)
+    if include_relationship_ids:
+        header.append(_RELATIONSHIP_IDS_COL)
 
     current_context_text += column_delimiter.join(header) + "\n"
     current_tokens = tokenizer.num_tokens(current_context_text)
@@ -60,6 +80,14 @@ def build_text_unit_context(
                 for field in attribute_cols
             ],
         ]
+        if include_relationship_ids:
+            rel_short_ids = [
+                rel_id_to_short[rid]
+                for rid in (unit.relationship_ids or [])
+                if rid in rel_id_to_short
+            ]
+            new_context.append(",".join(rel_short_ids))
+
         new_context_text = column_delimiter.join(new_context) + "\n"
         new_tokens = tokenizer.num_tokens(new_context_text)
 
