@@ -57,6 +57,9 @@ from .compute_confidence import (
 from .compute_quality_metrics import (
     run_workflow as run_compute_quality_metrics,
 )
+from .index_graph_store import (
+    run_workflow as run_index_graph_store,
+)
 from .verify_evidence import (
     run_workflow as run_verify_evidence,
 )
@@ -104,6 +107,7 @@ PipelineFactory.register_all({  # noqa: RUF067
     "resolve_entities": run_resolve_entities,
     "compute_confidence": run_compute_confidence,
     "compute_quality_metrics": run_compute_quality_metrics,
+    "index_graph_store": run_index_graph_store,
     "verify_evidence": run_verify_evidence,
     "update_final_documents": run_update_final_documents,
     "update_text_embeddings": run_update_text_embeddings,

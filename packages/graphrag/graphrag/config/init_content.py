@@ -71,6 +71,17 @@ vector_store:
   type: {vector_store_defaults.type}
   db_uri: {vector_store_defaults.db_uri}
 
+# graph_store:
+#   enabled: false
+#   url: http://localhost:8529
+#   username: root
+#   password: ""
+#   db_name: graphrag
+#   graph_name: knowledge_graph
+#   store_vectors: true   # copies entity vectors into ArangoDB for hybrid search (requires vector_store.type: arangodb)
+#   traversal_depth: 2    # default k-hop depth for graph traversal retrieval
+#   top_k_seeds: 10       # number of vector-seeded entities for hybrid search
+
 ### Workflow settings ###
 
 embed_text:
