@@ -352,6 +352,12 @@ Resolved entity embeddings are stored persistently in the configured vector stor
 - `top_k` **int** - Number of nearest neighbours retrieved per entity from the vector store (`embedding_search` strategy only). Default=`10`
 - `prompt` **str|None** - Path to a custom prompt file. Uses the built-in strategy-specific prompt if not set.
 
+#### Output Tables
+
+| Table | Description |
+|-------|-------------|
+| `contradictions` | One `same_as` row per confirmed merge: alias, canonical, `detection_method=llm_verified`. Appended to by `compute_confidence` if evidence is also enabled. |
+
 #### Example
 
 ```yaml
@@ -409,7 +415,7 @@ Evidence-based quality system that enriches every extracted entity and relations
 | Table | Description |
 |-------|-------------|
 | `evidence` | One row per extraction observation: subject_type, subject_id, text_unit_id, source_span, extraction_confidence, completeness_status, verification_status |
-| `contradictions` | Cross-document conflicts detected during confidence scoring |
+| `contradictions` | Shared provenance table. `entity_resolution` writes `same_as` rows (one per confirmed merge). `compute_confidence` appends `contradicts` rows (cross-document evidence conflicts). |
 | `quality_metrics` | Single-row summary: % without evidence, avg confidence, confidence percentiles, % contradicted |
 | `quality_details` | Per-entity/relationship: confidence, evidence_count, source_count, is_partial |
 
@@ -421,6 +427,82 @@ evidence:
   verification_enabled: true  # ~1 LLM call per text unit
   quality_metrics_enabled: true
   low_confidence_threshold: 0.3
+```
+
+### graph_store
+
+Native ArangoDB graph storage that runs as the final pipeline step after all other workflows complete. Stores the full knowledge graph (entities, relationships, communities, text units) as a proper ArangoDB named graph with edge collections, enabling native AQL graph traversal, shortest-path queries, and combined vector+graph (hybrid) search at query time.
+
+The pipeline also exposes `get_arangodb_local_search_engine()` as an alternative to the default local search engine — it replaces the in-memory relationship filtering with AQL k-hop traversal and an optional single-query hybrid mode (`APPROX_NEAR_COSINE` seed + graph expansion).
+
+**Disabled by default** — enable with `graph_store.enabled: true`. Requires ArangoDB 3.12+ with vector index support (`--experimental-vector-index=true`).
+
+#### ArangoDB Collections Created
+
+| Collection | Type | Description |
+|---|---|---|
+| `entities` | Document | One document per entity, keyed by UUID |
+| `relationships` | Edge | Entity→entity edges, keyed by relationship UUID |
+| `communities` | Document | Community cluster documents |
+| `community_reports` | Document | LLM-generated community summaries |
+| `text_units` | Document | Source text chunks |
+| `entity_community_membership` | Edge | Entity→community membership edges |
+| `entity_text_unit` | Edge | Entity→text_unit provenance edges |
+
+Named graph `<graph_name>` (default: `knowledge_graph`) wraps all three edge collections.
+
+#### Fields
+
+- `enabled` **bool** - Whether to run the graph store indexing workflow. Default=`false`
+- `url` **str** - ArangoDB server URL. Default=`"http://localhost:8529"`
+- `username` **str** - ArangoDB username. Default=`"root"`
+- `password` **str** - ArangoDB password. Default=`""`
+- `db_name` **str** - Target ArangoDB database. Default=`"graphrag"`
+- `graph_name` **str** - Name of the ArangoDB named graph. Default=`"knowledge_graph"`
+- `batch_size` **int** - Documents per bulk import batch. Default=`500`
+- `store_vectors` **bool** - Copy entity description vectors into entity documents to enable single-query hybrid search (`APPROX_NEAR_COSINE` + graph traversal). Only effective when `vector_store.type` is also `arangodb`. Default=`true`
+- `vector_size` **int** - Dimension of entity embeddings (must match the embedding model). Default=`3072`
+- `traversal_depth` **int** - Default k-hop depth for graph traversal retrieval. Default=`2`
+- `top_k_seeds` **int** - Number of vector-seeded entities used as starting points in hybrid search. Default=`10`
+
+#### Example AQL Queries (enabled after indexing)
+
+```aql
+-- k-hop neighborhood from a specific entity
+FOR v, e, p IN 1..2 ANY "entities/<uuid>" GRAPH "knowledge_graph"
+  RETURN {entity: v.title, relationship: e.description}
+
+-- Shortest path between two entities
+FOR v IN ANY SHORTEST_PATH "entities/<uuid1>" TO "entities/<uuid2>"
+  GRAPH "knowledge_graph"
+  RETURN v.title
+
+-- Hybrid: vector seed + graph expansion (requires store_vectors: true)
+LET seeds = (
+  FOR doc IN entities
+    LET score = APPROX_NEAR_COSINE(doc.vector, @query_vector)
+    SORT score DESC LIMIT 10 RETURN doc
+)
+FOR seed IN seeds
+  FOR v, e IN 1..2 ANY seed._id GRAPH "knowledge_graph"
+  OPTIONS {bfs: true, uniqueVertices: "global"}
+  FILTER IS_SAME_COLLECTION("entities", v)
+  RETURN DISTINCT v.title
+```
+
+#### Example
+
+```yaml
+graph_store:
+  enabled: true
+  url: "http://localhost:8529"
+  username: root
+  password: ${ARANGODB_PASSWORD}
+  db_name: graphrag
+  graph_name: knowledge_graph
+  store_vectors: true   # requires vector_store.type: arangodb
+  traversal_depth: 2
+  top_k_seeds: 10
 ```
 
 ### community_reports
