@@ -23,6 +23,13 @@ if TYPE_CHECKING:
     from graphrag_llm.completion import LLMCompletion
     from graphrag_llm.types import LLMCompletionResponse
 
+def _normalize(s: str | None) -> str:
+    """Normalize an entity name for case- and ß-insensitive lookup."""
+    if not s:
+        return ""
+    return s.upper().replace("ß", "SS").strip()
+
+
 INPUT_TEXT_KEY = "input_text"
 INPUT_ENTITY_SPEC_KEY = "entity_specs"
 INPUT_CLAIM_DESCRIPTION_KEY = "claim_description"
@@ -109,9 +116,10 @@ class ClaimExtractor:
         obj = claim.get("object_id", claim.get("object"))
         subject = claim.get("subject_id", claim.get("subject"))
 
-        # If subject or object in resolved entities, then replace with resolved entity
-        obj = resolved_entities.get(obj, obj)
-        subject = resolved_entities.get(subject, subject)
+        # If subject or object in resolved entities, then replace with resolved entity.
+        # Lookup is done on normalized form (uppercase + ß→SS) to handle LLM variants.
+        obj = resolved_entities.get(_normalize(obj), resolved_entities.get(obj, obj))
+        subject = resolved_entities.get(_normalize(subject), resolved_entities.get(subject, subject))
         claim["object_id"] = obj
         claim["subject_id"] = subject
         return claim
