@@ -118,25 +118,25 @@ class TestGroupsFromPairs:
 class TestRewriteEntities:
     async def test_alias_is_removed(self):
         """Alias entity must not appear in output."""
-        all_entities = [_entity("SEBASTIAN WETZ"), _entity("HERR WETZ")]
-        merge_map = {"HERR WETZ": "SEBASTIAN WETZ"}
+        all_entities = [_entity("AGENT ALPHA"), _entity("MR ALPHA")]
+        merge_map = {"MR ALPHA": "AGENT ALPHA"}
         table = FakeTable(all_entities)
         await _rewrite_entities(table, all_entities, merge_map)
 
         written_titles = [r["title"] for r in table.written]
-        assert "HERR WETZ" not in written_titles
-        assert "SEBASTIAN WETZ" in written_titles
+        assert "MR ALPHA" not in written_titles
+        assert "AGENT ALPHA" in written_titles
 
     async def test_text_unit_ids_merged(self):
         """Canonical entity must accumulate text_unit_ids from alias."""
-        e1 = _entity("SEBASTIAN WETZ", text_unit_ids=["tu1"])
-        e2 = _entity("HERR WETZ", text_unit_ids=["tu2"])
+        e1 = _entity("AGENT ALPHA", text_unit_ids=["tu1"])
+        e2 = _entity("MR ALPHA", text_unit_ids=["tu2"])
         all_entities = [e1, e2]
-        merge_map = {"HERR WETZ": "SEBASTIAN WETZ"}
+        merge_map = {"MR ALPHA": "AGENT ALPHA"}
         table = FakeTable(all_entities)
         await _rewrite_entities(table, all_entities, merge_map)
 
-        canonical = next(r for r in table.written if r["title"] == "SEBASTIAN WETZ")
+        canonical = next(r for r in table.written if r["title"] == "AGENT ALPHA")
         assert set(canonical["text_unit_ids"]) == {"tu1", "tu2"}
 
     async def test_no_merge_map_passes_through(self):
@@ -168,23 +168,23 @@ class TestRewriteEntities:
 
 class TestRewriteRelationships:
     async def test_alias_source_rewritten(self):
-        rels = [_rel("HERR WETZ", "ME-SYSTEME")]
-        merge_map = {"HERR WETZ": "SEBASTIAN WETZ"}
+        rels = [_rel("MR ALPHA", "XYZ")]
+        merge_map = {"MR ALPHA": "AGENT ALPHA"}
         table = FakeTable(rels)
         await _rewrite_relationships(table, merge_map)
-        assert table.written[0]["source"] == "SEBASTIAN WETZ"
+        assert table.written[0]["source"] == "AGENT ALPHA"
 
     async def test_alias_target_rewritten(self):
-        rels = [_rel("ME-SYSTEME", "HERR WETZ")]
-        merge_map = {"HERR WETZ": "SEBASTIAN WETZ"}
+        rels = [_rel("XYZ", "MR ALPHA")]
+        merge_map = {"MR ALPHA": "AGENT ALPHA"}
         table = FakeTable(rels)
         await _rewrite_relationships(table, merge_map)
-        assert table.written[0]["target"] == "SEBASTIAN WETZ"
+        assert table.written[0]["target"] == "AGENT ALPHA"
 
     async def test_self_loop_after_merge_removed(self):
         """A → B where B merges into A becomes A → A (self-loop), must be dropped."""
-        rels = [_rel("SEBASTIAN WETZ", "HERR WETZ")]
-        merge_map = {"HERR WETZ": "SEBASTIAN WETZ"}
+        rels = [_rel("AGENT ALPHA", "MR ALPHA")]
+        merge_map = {"MR ALPHA": "AGENT ALPHA"}
         table = FakeTable(rels)
         await _rewrite_relationships(table, merge_map)
         assert table.written == []

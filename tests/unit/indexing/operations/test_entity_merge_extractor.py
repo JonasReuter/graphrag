@@ -36,8 +36,8 @@ def _make_model(response_text: str) -> Any:
 
 
 _CANDIDATES = [
-    {"title": "SEBASTIAN WETZ", "type": "PERSON", "description": "Sales agent at ME-Meßsysteme GmbH"},
-    {"title": "HERR WETZ", "type": "PERSON", "description": "Agent at ME-Systeme providing technical support"},
+    {"title": "AGENT ALPHA", "type": "PERSON", "description": "Sales agent at XYZ GmbH"},
+    {"title": "MR ALPHA", "type": "PERSON", "description": "Agent at XYZ providing technical support"},
 ]
 
 
@@ -48,11 +48,11 @@ _CANDIDATES = [
 
 class TestEntityMergeExtractor:
     async def test_merge_true_returns_canonical(self):
-        model = _make_model('{"merge": true, "canonical": "SEBASTIAN WETZ"}')
+        model = _make_model('{"merge": true, "canonical": "AGENT ALPHA"}')
         extractor = EntityMergeExtractor(model=model, prompt=ENTITY_RESOLUTION_PROMPT)
         result = await extractor(_CANDIDATES)
         assert result.merge is True
-        assert result.canonical == "SEBASTIAN WETZ"
+        assert result.canonical == "AGENT ALPHA"
 
     async def test_merge_false_returns_no_merge(self):
         model = _make_model('{"merge": false}')
@@ -77,11 +77,11 @@ class TestEntityMergeExtractor:
 
     async def test_markdown_fenced_json_parsed_correctly(self):
         """LLMs sometimes wrap JSON in ```json ... ``` fences."""
-        model = _make_model('```json\n{"merge": true, "canonical": "SEBASTIAN WETZ"}\n```')
+        model = _make_model('```json\n{"merge": true, "canonical": "AGENT ALPHA"}\n```')
         extractor = EntityMergeExtractor(model=model, prompt=ENTITY_RESOLUTION_PROMPT)
         result = await extractor(_CANDIDATES)
         assert result.merge is True
-        assert result.canonical == "SEBASTIAN WETZ"
+        assert result.canonical == "AGENT ALPHA"
 
     async def test_prompt_receives_candidate_count(self):
         """The formatted prompt must contain the candidate count."""
