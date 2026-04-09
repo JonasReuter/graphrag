@@ -119,6 +119,8 @@ extract_claims:
   prompt: "prompts/extract_claims.txt"
   description: "{graphrag_config_defaults.extract_claims.description}"
   max_gleanings: {graphrag_config_defaults.extract_claims.max_gleanings}
+  # embedding_model_id: {graphrag_config_defaults.extract_claims.embedding_model_id}
+  # entity_candidates_k: 0  # set > 0 (e.g. 15) to inject top-k entity titles per chunk
 
 evidence:
   enabled: false # set to true to capture source spans, confidence, and completeness during extraction

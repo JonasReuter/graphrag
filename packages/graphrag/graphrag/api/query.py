@@ -12,6 +12,11 @@ Contains the following functions:
  - global_search_streaming: Perform a global search and stream results back.
  - local_search: Perform a local search.
  - local_search_streaming: Perform a local search and stream results back.
+ - drift_search / drift_search_streaming: DRIFT search.
+ - basic_search / basic_search_streaming: Basic vector search.
+ - graph_search / graph_search_streaming: ArangoDB-native graph search (no parquet).
+ - drift_graph_search / drift_graph_search_streaming: ArangoDB-native DRIFT search.
+ - covariate_report: Direct AQL query on covariates collection (no LLM).
 
 WARNING: This API is under development and may undergo changes in future releases.
 Backwards compatibility is not guaranteed at this time.
