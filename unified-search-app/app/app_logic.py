@@ -98,6 +98,13 @@ async def run_all_searches(query: str, sv: SessionVariables) -> list[SearchResul
                 sv=sv,
             )
         )
+    if sv.include_graph_search.value:
+        tasks.append(
+            run_graph_search(
+                query=query,
+                sv=sv,
+            )
+        )
 
     return await asyncio.gather(*tasks)
 
@@ -345,6 +352,50 @@ async def run_basic_search(
     st.session_state["response_lengths"].append({
         "search": SearchType.Basic.value.lower(),
         "result": search_result,
+    })
+
+    return search_result
+
+
+async def run_graph_search(
+    query: str,
+    sv: SessionVariables,
+) -> SearchResult:
+    """Run ArangoDB-native graph search."""
+    print(f"Graph search query: {query}")  # noqa T201
+
+    response_placeholder = st.session_state[
+        f"{SearchType.Graph.value.lower()}_response_placeholder"
+    ]
+    response_container = st.session_state[f"{SearchType.Graph.value.lower()}_container"]
+
+    with response_placeholder, st.spinner("Generating answer using graph search..."):
+        empty_context_data: dict[str, pd.DataFrame] = {}
+
+        response, context_data = await api.graph_search(
+            config=sv.graphrag_config.value,
+            response_type="Multiple Paragraphs",
+            query=query,
+        )
+
+        print(f"Graph Response: {response}")  # noqa T201
+
+    search_result = SearchResult(
+        search_type=SearchType.Graph,
+        response=str(response),
+        context=context_data if isinstance(context_data, dict) else empty_context_data,
+    )
+
+    display_search_result(
+        container=response_container, result=search_result, stats=None
+    )
+
+    if "response_lengths" not in st.session_state:
+        st.session_state.response_lengths = []
+
+    st.session_state["response_lengths"].append({
+        "result": search_result,
+        "search": SearchType.Graph.value.lower(),
     })
 
     return search_result

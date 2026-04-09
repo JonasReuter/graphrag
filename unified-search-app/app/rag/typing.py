@@ -16,6 +16,7 @@ class SearchType(Enum):
     Local = "local"
     Global = "global"
     Drift = "drift"
+    Graph = "graph"
 
 
 @dataclass

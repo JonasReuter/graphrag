@@ -98,17 +98,20 @@ async def main():
         ss_local = None
         ss_global = None
         ss_drift = None
+        ss_graph = None
 
         ss_basic_citations = None
         ss_local_citations = None
         ss_global_citations = None
         ss_drift_citations = None
+        ss_graph_citations = None
 
         count = sum([
             sv.include_basic_rag.value,
             sv.include_local_search.value,
             sv.include_global_search.value,
             sv.include_drift_search.value,
+            sv.include_graph_search.value,
         ])
 
         if count > 0:
@@ -125,6 +128,9 @@ async def main():
                 index += 1
             if sv.include_drift_search.value:
                 ss_drift = columns[index]
+                index += 1
+            if sv.include_graph_search.value:
+                ss_graph = columns[index]
 
         else:
             st.write("Please select at least one search option from the sidebar.")
@@ -166,11 +172,21 @@ async def main():
                         caption="###### Answer context: Includes community information",
                     )
 
+            if ss_graph:
+                with ss_graph:
+                    init_search_ui(
+                        container=ss_graph,
+                        search_type=SearchType.Graph,
+                        title="##### GraphRAG: Graph Search",
+                        caption="###### Answer context: ArangoDB-native graph traversal with temporal filtering",
+                    )
+
         count = sum([
             sv.include_basic_rag.value,
             sv.include_local_search.value,
             sv.include_global_search.value,
             sv.include_drift_search.value,
+            sv.include_graph_search.value,
         ])
 
         if count > 0:
@@ -187,6 +203,9 @@ async def main():
                 index += 1
             if sv.include_drift_search.value:
                 ss_drift_citations = columns[index]
+                index += 1
+            if sv.include_graph_search.value:
+                ss_graph_citations = columns[index]
 
         with st.container():
             if ss_basic_citations:
@@ -200,6 +219,9 @@ async def main():
                     st.empty()
             if ss_drift_citations:
                 with ss_drift_citations:
+                    st.empty()
+            if ss_graph_citations:
+                with ss_graph_citations:
                     st.empty()
 
         if question != "" and question != sv.question_in_progress.value:
@@ -229,6 +251,11 @@ async def main():
                     elif result["search"] == SearchType.Drift.value.lower():
                         display_citations(
                             container=ss_drift_citations,
+                            result=result["result"],
+                        )
+                    elif result["search"] == SearchType.Graph.value.lower():
+                        display_citations(
+                            container=ss_graph_citations,
                             result=result["result"],
                         )
             except Exception as e:  # noqa: BLE001

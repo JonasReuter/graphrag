@@ -33,6 +33,7 @@ class SessionVariables:
         self.include_local_search = QueryVariable("include_local_search", True)
         self.include_drift_search = QueryVariable("include_drift_search", False)
         self.include_basic_rag = QueryVariable("include_basic_rag", False)
+        self.include_graph_search = QueryVariable("include_graph_search", False)
 
         self.selected_report = SessionVariable()
         self.graph_community_level = SessionVariable(0)

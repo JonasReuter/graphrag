@@ -432,6 +432,142 @@ class TestDocToEntityTypes:
 # Tests: _fetch_covariates_from_graph
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Tests: temporal filtering
+# ---------------------------------------------------------------------------
+
+class TestTemporalFiltering:
+    """Verify that from_date / until_date kwargs filter entities and relationships."""
+
+    @staticmethod
+    def _ent_doc(
+        eid: str,
+        title: str,
+        observed_at: str | None,
+        last_observed_at: str | None,
+    ) -> dict:
+        return {
+            "id": eid, "_key": eid, "title": title, "type": "person",
+            "description": f"Desc {title}", "degree": 1,
+            "community_ids": [], "text_unit_ids": [],
+            "observed_at": observed_at, "last_observed_at": last_observed_at,
+        }
+
+    @staticmethod
+    def _rel_doc(
+        rid: str,
+        src: str,
+        tgt: str,
+        observed_at: str | None,
+        last_observed_at: str | None,
+    ) -> dict:
+        return {
+            "id": rid, "_key": rid, "source": src, "target": tgt,
+            "weight": 1.0, "combined_degree": 2,
+            "observed_at": observed_at, "last_observed_at": last_observed_at,
+        }
+
+    def _builder(
+        self, ent_docs: list[dict], rel_docs: list[dict]
+    ) -> ArangoDBGraphContextBuilder:
+        gs = MagicMock()
+        gs.hybrid_search.return_value = (ent_docs, rel_docs)
+        gs.traverse_neighbors.return_value = (ent_docs, rel_docs)
+        gs.get_community_reports_for_entities.return_value = []
+        gs.get_text_units_for_entities.return_value = []
+        gs.get_covariates_for_entities.return_value = []
+
+        mock_embedder = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.first_embedding = [0.1] * 4
+        mock_embedder.embedding.return_value = mock_resp
+
+        return ArangoDBGraphContextBuilder(
+            graph_store=gs,
+            entity_text_embeddings=MagicMock(),
+            text_embedder=mock_embedder,
+            traversal_depth=1,
+            top_k_seeds=5,
+        )
+
+    def _entity_titles(self, result: ContextBuilderResult) -> set[str]:
+        df = result.context_records.get("entities")
+        if df is None or df.empty:
+            return set()
+        return set(df["entity"].tolist())
+
+    def test_from_date_excludes_entities_last_seen_before_window(self):
+        """Entities whose last_observed_at < from_date are filtered out."""
+        ent_docs = [
+            self._ent_doc("e1", "OldEntity", "2023-01-01", "2023-12-31"),
+            self._ent_doc("e2", "NewEntity", "2024-01-01", "2025-06-01"),
+        ]
+        result = self._builder(ent_docs, []).build_context(query="test", from_date="2024-01-01")
+        titles = self._entity_titles(result)
+        assert "OldEntity" not in titles
+        assert "NewEntity" in titles
+
+    def test_until_date_excludes_entities_first_seen_after_window(self):
+        """Entities whose observed_at > until_date are filtered out."""
+        ent_docs = [
+            self._ent_doc("e1", "EarlyEntity", "2022-01-01", "2023-01-01"),
+            self._ent_doc("e2", "LateEntity", "2025-01-01", "2025-12-31"),
+        ]
+        result = self._builder(ent_docs, []).build_context(query="test", until_date="2023-12-31")
+        titles = self._entity_titles(result)
+        assert "EarlyEntity" in titles
+        assert "LateEntity" not in titles
+
+    def test_both_dates_keep_only_overlapping_entities(self):
+        """Only entities whose observation window overlaps [from_date, until_date] survive."""
+        ent_docs = [
+            self._ent_doc("e1", "InsideEntity", "2024-03-01", "2024-09-01"),
+            self._ent_doc("e2", "TooOld", "2022-01-01", "2022-12-31"),
+            self._ent_doc("e3", "TooNew", "2025-01-01", "2025-12-31"),
+        ]
+        result = self._builder(ent_docs, []).build_context(
+            query="test", from_date="2024-01-01", until_date="2024-12-31"
+        )
+        titles = self._entity_titles(result)
+        assert "InsideEntity" in titles
+        assert "TooOld" not in titles
+        assert "TooNew" not in titles
+
+    def test_entities_without_temporal_data_always_pass(self):
+        """Entities with no observed_at / last_observed_at survive any date filter."""
+        ent_docs = [self._ent_doc("e1", "NoDateEntity", None, None)]
+        result = self._builder(ent_docs, []).build_context(
+            query="test", from_date="2024-01-01", until_date="2024-12-31"
+        )
+        assert "NoDateEntity" in self._entity_titles(result)
+
+    def test_no_filter_passes_all_entities(self):
+        """Without from_date/until_date all entities pass regardless of timestamps."""
+        ent_docs = [
+            self._ent_doc("e1", "PastEntity", "2010-01-01", "2010-12-31"),
+            self._ent_doc("e2", "FutureEntity", "2030-01-01", "2030-12-31"),
+        ]
+        result = self._builder(ent_docs, []).build_context(query="test")
+        titles = self._entity_titles(result)
+        assert "PastEntity" in titles
+        assert "FutureEntity" in titles
+
+    def test_from_date_filters_relationships(self):
+        """Relationships whose last_observed_at < from_date are excluded from context."""
+        ent_docs = [
+            self._ent_doc("e1", "A", None, None),
+            self._ent_doc("e2", "B", None, None),
+        ]
+        rel_docs = [
+            self._rel_doc("r1", "A", "B", "2023-01-01", "2023-12-31"),
+        ]
+        result = self._builder(ent_docs, rel_docs).build_context(
+            query="test", from_date="2024-01-01"
+        )
+        rels_df = result.context_records.get("relationships")
+        assert rels_df is None or rels_df.empty
+
+
 class TestFetchCovariatesFromGraph:
     def test_empty_when_graph_returns_nothing(self):
         gs = _make_mock_graph_store()

@@ -45,6 +45,11 @@ def update_global_search(sv: SessionVariables):
     sv.include_global_search.value = st.session_state[sv.include_global_search.key]
 
 
+def update_graph_search(sv: SessionVariables):
+    """Update graph search state."""
+    sv.include_graph_search.value = st.session_state[sv.include_graph_search.key]
+
+
 def create_side_bar(sv: SessionVariables):
     """Create a side bar panel.."""
     with st.sidebar:
@@ -93,5 +98,11 @@ def create_side_bar(sv: SessionVariables):
             "Include drift search",
             key=sv.include_drift_search.key,
             on_change=update_drift_search,
+            kwargs={"sv": sv},
+        )
+        st.toggle(
+            "Include graph search",
+            key=sv.include_graph_search.key,
+            on_change=update_graph_search,
             kwargs={"sv": sv},
         )
