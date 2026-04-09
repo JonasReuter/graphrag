@@ -561,12 +561,21 @@ async def graph_search(
     query: str,
     callbacks: list[QueryCallbacks] | None = None,
     verbose: bool = False,
+    from_date: str | None = None,
+    until_date: str | None = None,
 ) -> tuple[str | dict[str, Any] | list[dict[str, Any]], dict[str, pd.DataFrame]]:
     """Perform a local search via ArangoDB native graph traversal (AQL).
 
     ArangoDB is the single source of truth: all data — entities, relationships,
     text units, covariates, and community reports — is fetched live via AQL.
     No parquet files are read.
+
+    Parameters
+    ----------
+    from_date:
+        ISO-8601 lower bound for the context time window (inclusive).
+    until_date:
+        ISO-8601 upper bound for the context time window (inclusive).
     """
     init_loggers(config=config, verbose=verbose, filename="query.log")
 
@@ -588,6 +597,8 @@ async def graph_search(
         response_type=response_type,
         query=query,
         callbacks=callbacks,
+        from_date=from_date,
+        until_date=until_date,
     ):
         full_response += chunk
     logger.debug("Query response: %s", truncate(full_response, 400))
@@ -601,10 +612,14 @@ def graph_search_streaming(
     query: str,
     callbacks: list[QueryCallbacks] | None = None,
     verbose: bool = False,
+    from_date: str | None = None,
+    until_date: str | None = None,
 ) -> AsyncGenerator:
     """ArangoDB-native graph search — no parquet required.
 
     Uses AQL hybrid vector+graph search. All data is fetched live from ArangoDB.
+    Temporal parameters (``from_date``, ``until_date``) restrict the context
+    to entities and relationships observed within the given window.
     """
     init_loggers(config=config, verbose=verbose, filename="query.log")
 
@@ -622,7 +637,7 @@ def graph_search_streaming(
         system_prompt=prompt,
         callbacks=callbacks,
     )
-    return search_engine.stream_search(query=query)
+    return search_engine.stream_search(query=query, from_date=from_date, until_date=until_date)
 
 
 @validate_call(config={"arbitrary_types_allowed": True})
