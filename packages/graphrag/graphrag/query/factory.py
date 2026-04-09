@@ -28,6 +28,9 @@ from graphrag.query.structured_search.global_search.community_context import (
     GlobalCommunityContext,
 )
 from graphrag.query.structured_search.global_search.search import GlobalSearch
+from graphrag.query.structured_search.local_search.graph_context import (
+    ArangoDBGraphContextBuilder,
+)
 from graphrag.query.structured_search.local_search.mixed_context import (
     LocalSearchMixedContext,
 )
@@ -102,18 +105,17 @@ def get_local_search_engine(
 
 def get_arangodb_local_search_engine(
     config: GraphRagConfig,
-    reports: list[CommunityReport],
-    text_units: list[TextUnit],
     description_embedding_store: VectorStore,
     response_type: str,
+    text_units: list[TextUnit] | None = None,
     system_prompt: str | None = None,
     callbacks: list[QueryCallbacks] | None = None,
 ) -> LocalSearch:
     """Create a local search engine backed by ArangoDB native graph traversal.
 
-    Uses hybrid vector+graph AQL queries instead of in-memory entity filtering.
-    Requires graph_store.enabled=true in config and a running ArangoDB instance
-    with a pre-indexed knowledge graph (run graphrag index first).
+    ArangoDB is the single source of truth: entities, relationships, text units,
+    covariates, and community reports are all fetched live via AQL graph traversal.
+    Requires graph_store.enabled=true in config.
     """
     from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
 
@@ -152,7 +154,7 @@ def get_arangodb_local_search_engine(
             graph_store=graph_store,
             entity_text_embeddings=description_embedding_store,
             text_embedder=embedding_model,
-            community_reports=reports,
+            community_reports=None,   # fetched from ArangoDB in _build_community_context
             text_units=text_units,
             tokenizer=tokenizer,
             traversal_depth=graph_cfg.traversal_depth,
@@ -300,6 +302,87 @@ def get_drift_search_engine(
             reduce_system_prompt=reduce_system_prompt,
             config=config.drift_search,
             response_type=response_type,
+        ),
+        tokenizer=tokenizer,
+        callbacks=callbacks,
+    )
+
+
+def get_drift_graph_search_engine(
+    config: GraphRagConfig,
+    description_embedding_store: VectorStore,
+    response_type: str,
+    local_system_prompt: str | None = None,
+    reduce_system_prompt: str | None = None,
+    callbacks: list[QueryCallbacks] | None = None,
+) -> DRIFTSearch:
+    """Create a DRIFT search engine backed by ArangoDB native graph traversal.
+
+    ArangoDB is the single source of truth: community reports are loaded from
+    ArangoDB for the global priming phase, and the local refinement steps use
+    AQL graph traversal instead of in-memory entity/relationship filtering.
+    """
+    from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
+
+    from graphrag.query.input.retrieval.arangodb_graph_retriever import (
+        ArangoDBGraphRetriever,
+    )
+
+    graph_cfg = config.graph_store
+
+    chat_model_settings = config.get_completion_model_config(
+        config.drift_search.completion_model_id
+    )
+    chat_model = create_completion(chat_model_settings)
+
+    embedding_model_settings = config.get_embedding_model_config(
+        config.drift_search.embedding_model_id
+    )
+    embedding_model = create_embedding(embedding_model_settings)
+    tokenizer = chat_model.tokenizer
+
+    graph_store = ArangoDBGraphStore(
+        url=graph_cfg.url,
+        username=graph_cfg.username,
+        password=graph_cfg.password,
+        db_name=graph_cfg.db_name,
+        graph_name=graph_cfg.graph_name,
+        vector_size=graph_cfg.vector_size,
+    )
+    graph_store.connect()
+
+    # Load all community reports from ArangoDB for DRIFT global priming
+    retriever = ArangoDBGraphRetriever(graph_store)
+    reports = retriever.get_all_community_reports()
+
+    graph_context_builder = ArangoDBGraphContextBuilder(
+        graph_store=graph_store,
+        entity_text_embeddings=description_embedding_store,
+        text_embedder=embedding_model,
+        community_reports=None,   # fetched per-entity in _build_community_context
+        text_units=None,
+        tokenizer=tokenizer,
+        traversal_depth=graph_cfg.traversal_depth,
+        top_k_seeds=graph_cfg.top_k_seeds,
+        use_hybrid_search=graph_cfg.store_vectors,
+    )
+
+    return DRIFTSearch(
+        model=chat_model,
+        context_builder=DRIFTSearchContextBuilder(
+            model=chat_model,
+            text_embedder=embedding_model,
+            entities=[],
+            relationships=[],
+            reports=reports,
+            entity_text_embeddings=description_embedding_store,
+            text_units=[],
+            covariates={},
+            local_system_prompt=local_system_prompt,
+            reduce_system_prompt=reduce_system_prompt,
+            config=config.drift_search,
+            response_type=response_type,
+            local_mixed_context=graph_context_builder,
         ),
         tokenizer=tokenizer,
         callbacks=callbacks,

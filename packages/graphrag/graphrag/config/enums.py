@@ -35,6 +35,8 @@ class SearchMethod(Enum):
     GLOBAL = "global"
     DRIFT = "drift"
     BASIC = "basic"
+    GRAPH = "graph"
+    DRIFT_GRAPH = "drift-graph"
 
     def __str__(self):
         """Return the string representation of the enum value."""

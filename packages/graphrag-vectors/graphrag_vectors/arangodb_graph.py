@@ -32,11 +32,12 @@ _BATCH_SIZE = 500
 # ArangoDB error code for "index still building"
 _ERR_INDEX_BUILDING = 1555
 
-_DOCUMENT_COLLECTIONS = ["entities", "communities", "community_reports", "text_units"]
+_DOCUMENT_COLLECTIONS = ["entities", "communities", "community_reports", "text_units", "covariates"]
 _EDGE_COLLECTIONS = [
     "relationships",
     "entity_community_membership",
     "entity_text_unit",
+    "entity_covariate",
 ]
 
 
@@ -112,6 +113,11 @@ class ArangoDBGraphStore:
                         "from_vertex_collections": ["entities"],
                         "to_vertex_collections": ["text_units"],
                     },
+                    {
+                        "edge_collection": "entity_covariate",
+                        "from_vertex_collections": ["entities"],
+                        "to_vertex_collections": ["covariates"],
+                    },
                 ],
             )
 
@@ -172,6 +178,20 @@ class ArangoDBGraphStore:
                 self.vector_size,
                 exc,
             )
+
+        # Persistent index on community_reports.community for O(1) join
+        try:
+            cr_coll = self._db.collection("community_reports")
+            existing_fields = {
+                idx["fields"][0]
+                for idx in cr_coll.indexes()
+                if idx.get("fields") and len(idx["fields"]) == 1
+            }
+            if "community" not in existing_fields:
+                cr_coll.add_persistent_index(fields=["community"], sparse=False)
+                logger.info("Persistent index created on community_reports.community.")
+        except Exception as exc:
+            logger.warning("Could not create community_reports index: %s", exc)
 
     # ------------------------------------------------------------------
     # Upsert helpers
@@ -443,11 +463,17 @@ class ArangoDBGraphStore:
         (communities and text_units are filtered out).
         """
         aql = f"""
-            FOR v, e, p IN 1..@depth {direction} @start
-              GRAPH @graph
-              OPTIONS {{bfs: true, uniqueVertices: "global"}}
-              FILTER IS_SAME_COLLECTION("entities", v)
-              RETURN DISTINCT {{vertex: v, edge: e}}
+            LET start_doc = DOCUMENT(@start)
+            LET start_row = [{{vertex: start_doc, edge: null}}]
+            LET neighbor_rows = (
+                FOR v, e IN 1..@depth {direction} @start
+                  GRAPH @graph
+                  OPTIONS {{bfs: true, uniqueVertices: "global"}}
+                  FILTER IS_SAME_COLLECTION("entities", v)
+                  RETURN DISTINCT {{vertex: v, edge: e}}
+            )
+            FOR row IN APPEND(start_row, neighbor_rows)
+                RETURN row
         """
         cursor = self._db.aql.execute(
             aql,
@@ -508,12 +534,17 @@ class ArangoDBGraphStore:
                     LIMIT @k
                     RETURN doc
             )
-            FOR seed IN seeds
-                FOR v, e IN 1..@depth ANY seed._id
-                  GRAPH @graph
-                  OPTIONS {bfs: true, uniqueVertices: "global"}
-                  FILTER IS_SAME_COLLECTION("entities", v)
-                  RETURN DISTINCT {vertex: v, edge: e}
+            LET seed_rows = (FOR seed IN seeds RETURN {vertex: seed, edge: null})
+            LET neighbor_rows = (
+                FOR seed IN seeds
+                    FOR v, e IN 1..@depth ANY seed._id
+                      GRAPH @graph
+                      OPTIONS {bfs: true, uniqueVertices: "global"}
+                      FILTER IS_SAME_COLLECTION("entities", v)
+                      RETURN DISTINCT {vertex: v, edge: e}
+            )
+            FOR row IN APPEND(seed_rows, neighbor_rows)
+                RETURN row
         """
         try:
             cursor = self._db.aql.execute(
@@ -595,14 +626,96 @@ class ArangoDBGraphStore:
             return []
         aql = """
             FOR entity_id IN @entity_ids
-                FOR e IN entity_community_membership
-                    FILTER e._from == CONCAT("entities/", entity_id)
-                    LET community = DOCUMENT(e._to)
-                    FOR report IN community_reports
-                        FILTER report.community == community.community
-                        RETURN DISTINCT report
+                FOR community IN 1..1 OUTBOUND CONCAT("entities/", entity_id)
+                  GRAPH @graph
+                  OPTIONS {bfs: true}
+                  FILTER IS_SAME_COLLECTION("communities", community)
+                  FOR report IN community_reports
+                      FILTER report.community == community.community
+                      RETURN DISTINCT report
         """
         cursor = self._db.aql.execute(
-            aql, bind_vars={"entity_ids": entity_ids}
+            aql, bind_vars={"entity_ids": entity_ids, "graph": self.graph_name}
         )
+        return list(cursor)
+
+    def get_text_units_for_entities(self, entity_ids: list[str]) -> list[dict]:
+        """Retrieve text unit documents for entity IDs via entity_text_unit edges."""
+        if not entity_ids:
+            return []
+        aql = """
+            FOR entity_id IN @entity_ids
+                FOR text_unit IN 1..1 OUTBOUND CONCAT("entities/", entity_id)
+                  GRAPH @graph
+                  OPTIONS {bfs: true}
+                  FILTER IS_SAME_COLLECTION("text_units", text_unit)
+                  RETURN DISTINCT text_unit
+        """
+        cursor = self._db.aql.execute(
+            aql, bind_vars={"entity_ids": entity_ids, "graph": self.graph_name}
+        )
+        return list(cursor)
+
+    def get_covariates_for_entities(self, entity_ids: list[str]) -> list[dict]:
+        """Retrieve covariate documents for entity IDs via entity_covariate edges."""
+        if not entity_ids:
+            return []
+        aql = """
+            FOR entity_id IN @entity_ids
+                FOR covariate IN 1..1 OUTBOUND CONCAT("entities/", entity_id)
+                  GRAPH @graph
+                  OPTIONS {bfs: true}
+                  FILTER IS_SAME_COLLECTION("covariates", covariate)
+                  RETURN DISTINCT covariate
+        """
+        cursor = self._db.aql.execute(
+            aql, bind_vars={"entity_ids": entity_ids, "graph": self.graph_name}
+        )
+        return list(cursor)
+
+    def upsert_covariates(
+        self,
+        rows: list[dict[str, Any]],
+        title_to_id: dict[str, str],
+    ) -> int:
+        """Upsert covariate documents and entity→covariate edges.
+
+        subject_id in covariates is an entity title — resolved to UUID via title_to_id.
+        Skips edge creation gracefully when the entity title cannot be resolved.
+        """
+        docs = []
+        edges = []
+        skipped = 0
+        for row in rows:
+            cov_id = str(row["id"])
+            doc = {
+                "_key": cov_id,
+                **{k: v for k, v in row.items() if not k.startswith("_")},
+            }
+            docs.append(doc)
+
+            entity_id = title_to_id.get(str(row.get("subject_id", "")))
+            if entity_id:
+                edges.append({
+                    "_key": f"{entity_id}_{cov_id}",
+                    "_from": f"entities/{entity_id}",
+                    "_to": f"covariates/{cov_id}",
+                })
+            else:
+                skipped += 1
+
+        if docs:
+            self._bulk_upsert("covariates", docs)
+        if edges:
+            self._bulk_upsert("entity_covariate", edges)
+        if skipped:
+            logger.warning(
+                "Skipped %d covariates with unresolvable entity titles.", skipped
+            )
+        logger.info("Upserted %d covariate documents.", len(docs))
+        return len(docs)
+
+    def get_all_community_reports(self) -> list[dict]:
+        """Return all community report documents from the community_reports collection."""
+        cursor = self._db.aql.execute("FOR doc IN community_reports RETURN doc")
         return list(cursor)

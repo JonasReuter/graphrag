@@ -34,7 +34,9 @@ from graphrag.config.embeddings import (
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 from graphrag.logger.standard_logging import init_loggers
 from graphrag.query.factory import (
+    get_arangodb_local_search_engine,
     get_basic_search_engine,
+    get_drift_graph_search_engine,
     get_drift_search_engine,
     get_global_search_engine,
     get_local_search_engine,
@@ -541,6 +543,147 @@ def basic_search_streaming(
         text_unit_embeddings=embedding_store,
         response_type=response_type,
         system_prompt=prompt,
+        callbacks=callbacks,
+    )
+    return search_engine.stream_search(query=query)
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+async def graph_search(
+    config: GraphRagConfig,
+    response_type: str,
+    query: str,
+    callbacks: list[QueryCallbacks] | None = None,
+    verbose: bool = False,
+) -> tuple[str | dict[str, Any] | list[dict[str, Any]], dict[str, pd.DataFrame]]:
+    """Perform a local search via ArangoDB native graph traversal (AQL).
+
+    ArangoDB is the single source of truth: all data — entities, relationships,
+    text units, covariates, and community reports — is fetched live via AQL.
+    No parquet files are read.
+    """
+    init_loggers(config=config, verbose=verbose, filename="query.log")
+
+    callbacks = callbacks or []
+    full_response = ""
+    context_data = {}
+
+    def on_context(context: Any) -> None:
+        nonlocal context_data
+        context_data = context
+
+    local_callbacks = NoopQueryCallbacks()
+    local_callbacks.on_context = on_context
+    callbacks.append(local_callbacks)
+
+    logger.debug("Executing graph search query: %s", query)
+    async for chunk in graph_search_streaming(
+        config=config,
+        response_type=response_type,
+        query=query,
+        callbacks=callbacks,
+    ):
+        full_response += chunk
+    logger.debug("Query response: %s", truncate(full_response, 400))
+    return full_response, context_data
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+def graph_search_streaming(
+    config: GraphRagConfig,
+    response_type: str,
+    query: str,
+    callbacks: list[QueryCallbacks] | None = None,
+    verbose: bool = False,
+) -> AsyncGenerator:
+    """ArangoDB-native graph search — no parquet required.
+
+    Uses AQL hybrid vector+graph search. All data is fetched live from ArangoDB.
+    """
+    init_loggers(config=config, verbose=verbose, filename="query.log")
+
+    description_embedding_store = get_embedding_store(
+        config=config.vector_store,
+        embedding_name=entity_description_embedding,
+    )
+    prompt = load_search_prompt(config.local_search.prompt)
+
+    logger.debug("Executing streaming graph search query: %s", query)
+    search_engine = get_arangodb_local_search_engine(
+        config=config,
+        description_embedding_store=description_embedding_store,
+        response_type=response_type,
+        system_prompt=prompt,
+        callbacks=callbacks,
+    )
+    return search_engine.stream_search(query=query)
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+async def drift_graph_search(
+    config: GraphRagConfig,
+    response_type: str,
+    query: str,
+    callbacks: list[QueryCallbacks] | None = None,
+    verbose: bool = False,
+) -> tuple[str | dict[str, Any] | list[dict[str, Any]], dict[str, pd.DataFrame]]:
+    """Perform DRIFT search with ArangoDB native graph traversal.
+
+    ArangoDB is the single source of truth: community reports are loaded from
+    ArangoDB for global priming, all other data via AQL graph traversal.
+    No parquet files are read.
+    """
+    init_loggers(config=config, verbose=verbose, filename="query.log")
+
+    callbacks = callbacks or []
+    full_response = ""
+    context_data = {}
+
+    def on_context(context: Any) -> None:
+        nonlocal context_data
+        context_data = context
+
+    local_callbacks = NoopQueryCallbacks()
+    local_callbacks.on_context = on_context
+    callbacks.append(local_callbacks)
+
+    logger.debug("Executing drift-graph search query: %s", query)
+    async for chunk in drift_graph_search_streaming(
+        config=config,
+        response_type=response_type,
+        query=query,
+        callbacks=callbacks,
+    ):
+        full_response += chunk
+    logger.debug("Query response: %s", truncate(full_response, 400))
+    return full_response, context_data
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+def drift_graph_search_streaming(
+    config: GraphRagConfig,
+    response_type: str,
+    query: str,
+    callbacks: list[QueryCallbacks] | None = None,
+    verbose: bool = False,
+) -> AsyncGenerator:
+    """ArangoDB-native DRIFT search — no parquet required."""
+    init_loggers(config=config, verbose=verbose, filename="query.log")
+
+    description_embedding_store = get_embedding_store(
+        config=config.vector_store,
+        embedding_name=entity_description_embedding,
+    )
+
+    local_prompt = load_search_prompt(config.drift_search.prompt)
+    reduce_prompt = load_search_prompt(config.drift_search.reduce_prompt)
+
+    search_engine = get_drift_graph_search_engine(
+        config=config,
+        description_embedding_store=description_embedding_store,
+        response_type=response_type,
+        local_system_prompt=local_prompt,
+        reduce_system_prompt=reduce_prompt,
         callbacks=callbacks,
     )
     return search_engine.stream_search(query=query)
