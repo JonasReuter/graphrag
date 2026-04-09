@@ -423,9 +423,12 @@ async def _rewrite_relationships(
             row["target"] = target
             seen[key] = dict(row)
         else:
-            # Merge text_unit_ids
-            existing_ids = set(seen[key].get("text_unit_ids") or [])
-            for uid in row.get("text_unit_ids") or []:
+            # Merge text_unit_ids — guard against numpy arrays from parquet
+            raw_existing = seen[key].get("text_unit_ids")
+            existing_ids = set(raw_existing.tolist() if hasattr(raw_existing, "tolist") else (raw_existing or []))
+            raw_new = row.get("text_unit_ids")
+            new_ids = raw_new.tolist() if hasattr(raw_new, "tolist") else (raw_new or [])
+            for uid in new_ids:
                 existing_ids.add(uid)
             seen[key]["text_unit_ids"] = list(existing_ids)
             seen[key]["weight"] = (seen[key].get("weight") or 0) + (
