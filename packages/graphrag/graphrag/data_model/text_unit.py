@@ -31,6 +31,9 @@ class TextUnit(Identified):
     document_id: str | None = None
     """ID of the document in which the text unit appears (optional)."""
 
+    created_at: str | None = None
+    """ISO-8601 timestamp propagated from the parent document's creation_date."""
+
     attributes: dict[str, Any] | None = None
     """A dictionary of additional attributes associated with the text unit (optional)."""
 
@@ -58,5 +61,6 @@ class TextUnit(Identified):
             covariate_ids=d.get(covariates_key),
             n_tokens=d.get(n_tokens_key),
             document_id=d.get(document_id_key),
+            created_at=d.get("created_at"),
             attributes=d.get(attributes_key),
         )

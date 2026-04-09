@@ -139,6 +139,10 @@ def _doc_to_entity(doc: dict[str, Any]) -> Entity:
         community_ids=[str(c) for c in raw_community_ids],
         text_unit_ids=[str(t) for t in raw_text_unit_ids],
         rank=int(doc["degree"]) if doc.get("degree") is not None else 1,
+        observed_at=doc.get("observed_at"),
+        last_observed_at=doc.get("last_observed_at"),
+        valid_from=doc.get("valid_from"),
+        valid_until=doc.get("valid_until"),
     )
 
 
@@ -159,6 +163,10 @@ def _doc_to_relationship(doc: dict[str, Any]) -> Relationship:
         description=doc.get("description"),
         rank=int(doc["combined_degree"]) if doc.get("combined_degree") is not None else 1,
         text_unit_ids=doc.get("text_unit_ids"),
+        observed_at=doc.get("observed_at"),
+        last_observed_at=doc.get("last_observed_at"),
+        valid_from=doc.get("valid_from"),
+        valid_until=doc.get("valid_until"),
     )
 
 

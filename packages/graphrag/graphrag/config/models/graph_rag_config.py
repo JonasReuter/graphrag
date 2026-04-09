@@ -38,6 +38,7 @@ from graphrag.config.models.snapshots_config import SnapshotsConfig
 from graphrag.config.models.summarize_descriptions_config import (
     SummarizeDescriptionsConfig,
 )
+from graphrag.config.models.temporal_config import TemporalConfig
 
 
 class GraphRagConfig(BaseModel):
@@ -234,6 +235,12 @@ class GraphRagConfig(BaseModel):
         ),
     )
     """The evidence extraction and verification configuration."""
+
+    temporal: TemporalConfig = Field(
+        description="Temporal metadata extraction and propagation configuration.",
+        default=TemporalConfig(),
+    )
+    """Temporal metadata configuration."""
 
     graph_store: GraphStoreConfig = Field(
         description="ArangoDB graph store configuration for native graph indexing and retrieval.",

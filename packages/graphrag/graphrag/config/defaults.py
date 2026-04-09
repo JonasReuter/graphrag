@@ -394,6 +394,16 @@ class EvidenceDefaults:
 
 
 @dataclass
+class TemporalDefaults:
+    """Default values for temporal metadata extraction."""
+
+    enabled: bool = False
+    temporal_extraction: bool = True
+    temporal_prompt: None = None
+    propagate_document_timestamps: bool = True
+
+
+@dataclass
 class GraphRagConfigDefaults:
     """Default values for GraphRAG."""
 
@@ -429,6 +439,7 @@ class GraphRagConfigDefaults:
     )
     extract_claims: ExtractClaimsDefaults = field(default_factory=ExtractClaimsDefaults)
     evidence: EvidenceDefaults = field(default_factory=EvidenceDefaults)
+    temporal: TemporalDefaults = field(default_factory=TemporalDefaults)
     graph_store: GraphStoreDefaults = field(default_factory=GraphStoreDefaults)
     prune_graph: PruneGraphDefaults = field(default_factory=PruneGraphDefaults)
     cluster_graph: ClusterGraphDefaults = field(default_factory=ClusterGraphDefaults)
