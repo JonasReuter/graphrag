@@ -427,6 +427,18 @@ def _query_cli(
         "--streaming/--no-streaming",
         help="Print the response in a streaming manner.",
     ),
+    from_date: str | None = typer.Option(
+        None,
+        "--from-date",
+        "-f",
+        help="Restrict context to events at or after this date (ISO-8601, e.g. 2024-01-01). Local search only.",
+    ),
+    until_date: str | None = typer.Option(
+        None,
+        "--until-date",
+        "-u",
+        help="Restrict context to events at or before this date (ISO-8601, e.g. 2024-12-31). Local search only.",
+    ),
 ) -> None:
     """Query a knowledge graph index."""
     from graphrag.cli.query import (
@@ -448,6 +460,8 @@ def _query_cli(
                 streaming=streaming,
                 query=query,
                 verbose=verbose,
+                from_date=from_date,
+                until_date=until_date,
             )
         case SearchMethod.GLOBAL:
             run_global_search(
@@ -544,4 +558,52 @@ def _report_cli(
         subject=subject,
         covariate_type=covariate_type,
         status=status,
+    )
+
+
+@app.command("timeline")
+def _timeline_cli(
+    entity: str = typer.Argument(
+        help="Entity name to look up (case-insensitive).",
+    ),
+    root: Path = typer.Option(
+        Path.cwd(),
+        "--root",
+        "-r",
+        help="The project root directory.",
+        exists=True,
+        dir_okay=True,
+        file_okay=False,
+        writable=True,
+        resolve_path=True,
+        autocompletion=ROOT_AUTOCOMPLETE,
+    ),
+    from_date: str | None = typer.Option(
+        None,
+        "--from",
+        "-f",
+        help="Start date filter (ISO-8601, e.g. 2024-01-01). Inclusive.",
+    ),
+    until_date: str | None = typer.Option(
+        None,
+        "--until",
+        "-u",
+        help="End date filter (ISO-8601, e.g. 2024-12-31). Inclusive.",
+    ),
+    limit: int = typer.Option(
+        200,
+        "--limit",
+        "-n",
+        help="Maximum number of results.",
+    ),
+) -> None:
+    """Print a unified, chronological timeline for an entity (relationships + facts, no LLM)."""
+    from graphrag.cli.query import run_timeline
+
+    run_timeline(
+        root_dir=root,
+        entity=entity,
+        from_date=from_date,
+        until_date=until_date,
+        limit=limit,
     )

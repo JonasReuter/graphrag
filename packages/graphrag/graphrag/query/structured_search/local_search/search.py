@@ -163,13 +163,20 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
         self,
         query: str,
         conversation_history: ConversationHistory | None = None,
+        **kwargs,
     ) -> AsyncGenerator:
-        """Build local search context that fits a single context window and generate answer for the user query."""
+        """Build local search context that fits a single context window and generate answer for the user query.
+
+        Additional keyword arguments (e.g. ``from_date``, ``until_date``) are
+        forwarded to ``build_context`` and can be used to restrict the context
+        to a specific time window.
+        """
         start_time = time.time()
 
         context_result = self.context_builder.build_context(
             query=query,
             conversation_history=conversation_history,
+            **kwargs,
             **self.context_builder_params,
         )
         logger.debug("GENERATE ANSWER: %s. QUERY: %s", start_time, query)

@@ -124,6 +124,8 @@ class LocalSearchMixedContext(LocalContextBuilder):
         min_community_rank: int = 0,
         community_context_name: str = "Reports",
         column_delimiter: str = "|",
+        from_date: str | None = None,
+        until_date: str | None = None,
         **kwargs: dict[str, Any],
     ) -> ContextBuilderResult:
         """
@@ -160,6 +162,19 @@ class LocalSearchMixedContext(LocalContextBuilder):
             k=top_k_mapped_entities,
             oversample_scaler=2,
         )
+
+        # Temporal filtering: restrict entities and relationships to a time window.
+        # An entity passes if it was observed at any point within [from_date, until_date].
+        # We keep entities without temporal data (None) so legacy data is not silently excluded.
+        if from_date or until_date:
+            selected_entities = [
+                e for e in selected_entities
+                if _entity_in_time_window(e, from_date, until_date)
+            ]
+            logger.debug(
+                "Temporal filter [%s → %s]: %d entities remain",
+                from_date, until_date, len(selected_entities),
+            )
 
         # build context
         final_context = list[str]()
@@ -214,6 +229,8 @@ class LocalSearchMixedContext(LocalContextBuilder):
             relationship_ranking_attribute=relationship_ranking_attribute,
             return_candidate_context=return_candidate_context,
             column_delimiter=column_delimiter,
+            from_date=from_date,
+            until_date=until_date,
         )
         if local_context.strip() != "":
             final_context.append(str(local_context))
@@ -463,8 +480,24 @@ class LocalSearchMixedContext(LocalContextBuilder):
         relationship_ranking_attribute: str = "rank",
         return_candidate_context: bool = False,
         column_delimiter: str = "|",
+        from_date: str | None = None,
+        until_date: str | None = None,
     ) -> tuple[str, dict[str, pd.DataFrame]]:
-        """Build data context for local search prompt combining entity/relationship/covariate tables."""
+        """Build data context for local search prompt combining entity/relationship/covariate tables.
+
+        When ``from_date`` or ``until_date`` are set, only relationships observed
+        within the given time window are included.  Relationships without temporal
+        data (``observed_at`` is None) are always kept so legacy data is not
+        silently excluded.
+        """
+        # Apply temporal filter to relationships when a time window is requested
+        all_relationships = list(self.relationships.values())
+        if from_date or until_date:
+            all_relationships = [
+                r for r in all_relationships
+                if _relationship_in_time_window(r, from_date, until_date)
+            ]
+
         # build entity context
         entity_context, entity_context_data = build_entity_context(
             selected_entities=selected_entities,
@@ -494,7 +527,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
                 relationship_context_data,
             ) = build_relationship_context(
                 selected_entities=added_entities,
-                relationships=list(self.relationships.values()),
+                relationships=all_relationships,
                 tokenizer=self.tokenizer,
                 max_context_tokens=max_context_tokens,
                 column_delimiter=column_delimiter,
@@ -543,7 +576,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
             candidate_context_data = get_candidate_context(
                 selected_entities=selected_entities,
                 entities=list(self.entities.values()),
-                relationships=list(self.relationships.values()),
+                relationships=all_relationships,
                 covariates=self.covariates,
                 include_entity_rank=include_entity_rank,
                 entity_rank_description=rank_description,
@@ -570,3 +603,54 @@ class LocalSearchMixedContext(LocalContextBuilder):
             for key in final_context_data:
                 final_context_data[key]["in_context"] = True
         return (final_context_text, final_context_data)
+
+
+# ---------------------------------------------------------------------------
+# Temporal filter helpers
+# ---------------------------------------------------------------------------
+
+def _entity_in_time_window(
+    entity: "Entity",
+    from_date: str | None,
+    until_date: str | None,
+) -> bool:
+    """Return True if the entity was observed at any point within the window.
+
+    Uses ``observed_at`` (first seen) and ``last_observed_at`` (last seen).
+    If both are None the entity passes (legacy / no temporal data).
+    """
+    obs = entity.observed_at
+    last = entity.last_observed_at
+    # Entity with no temporal data: always include
+    if obs is None and last is None:
+        return True
+    # Entity passes if *any* of its observation window overlaps with [from_date, until_date]
+    # i.e. last_observed >= from_date  AND  observed_at <= until_date
+    if from_date and last is not None and last < from_date:
+        return False
+    if until_date and obs is not None and obs > until_date:
+        return False
+    return True
+
+
+def _relationship_in_time_window(
+    rel: "Relationship",
+    from_date: str | None,
+    until_date: str | None,
+) -> bool:
+    """Return True if the relationship was observed within the window.
+
+    Falls back to ``valid_from``/``valid_until`` when ``observed_at`` is absent.
+    Relationships without any temporal data always pass.
+    """
+    # Prefer document-level timestamps; fall back to LLM-extracted validity
+    obs = rel.observed_at or rel.valid_from
+    last = rel.last_observed_at or rel.valid_until
+    if obs is None and last is None:
+        return True
+    if from_date and last is not None and last < from_date:
+        return False
+    if until_date and obs is not None and obs > until_date:
+        return False
+    return True
+

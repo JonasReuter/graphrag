@@ -321,6 +321,105 @@ class ArangoDBGraphStore:
                 edges.append(row["edge"])
         return vertices, edges
 
+    def entity_facts_timeline(
+        self,
+        entity_title: str,
+        from_date: str | None = None,
+        until_date: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Return a unified, chronologically sorted timeline for an entity.
+
+        Merges relationship events and covariate facts into a single list,
+        each item normalised to::
+
+            {
+                "date":        str | None,   # ISO-8601, earliest available date
+                "kind":        "relationship" | "fact",
+                "description": str,
+                "related":     str | None,   # other entity for relationships; object_id for facts
+                "status":      str | None,   # covariate status; None for relationships
+                "source":      str | None,   # source_text excerpt for facts
+            }
+
+        Results are sorted ascending by ``date`` (None-date items sorted last).
+
+        Parameters
+        ----------
+        entity_title:
+            Case-insensitive entity name to look up.
+        from_date:
+            ISO-8601 string.  Only events at or after this date are returned.
+        until_date:
+            ISO-8601 string.  Only events at or before this date are returned.
+        limit:
+            Maximum number of combined results.
+        """
+        # ── relationships ──────────────────────────────────────────────
+        rel_date_filters = ""
+        bind: dict = {"title": entity_title, "graph": self.graph_name}
+
+        if from_date:
+            rel_date_filters += " FILTER e.observed_at >= @from_date OR e.valid_from >= @from_date"
+            bind["from_date"] = from_date
+        if until_date:
+            rel_date_filters += " FILTER e.observed_at <= @until_date OR e.valid_until <= @until_date"
+            bind["until_date"] = until_date
+
+        rel_aql = f"""
+            LET entity_doc = FIRST(
+                FOR e IN entities
+                    FILTER UPPER(e.title) == UPPER(@title)
+                    LIMIT 1
+                    RETURN e
+            )
+            FILTER entity_doc != null
+            FOR v, e IN 1..1 ANY entity_doc._id
+              GRAPH @graph
+              FILTER IS_SAME_COLLECTION("relationships", e)
+              {rel_date_filters}
+              SORT e.observed_at ASC, e.valid_from ASC
+              RETURN {{
+                date:        e.observed_at != null ? e.observed_at : e.valid_from,
+                kind:        "relationship",
+                description: e.description,
+                related:     v.title,
+                status:      null,
+                source:      null
+              }}
+        """
+
+        # ── covariates ─────────────────────────────────────────────────
+        cov_date_filters = "FILTER UPPER(c.subject_id) == UPPER(@title)"
+        if from_date:
+            cov_date_filters += " FILTER c.start_date >= @from_date OR c.start_date == null OR c.start_date == 'NONE'"
+        if until_date:
+            cov_date_filters += " FILTER c.start_date <= @until_date OR c.start_date == null OR c.start_date == 'NONE'"
+
+        cov_aql = f"""
+            FOR c IN covariates
+              {cov_date_filters}
+              SORT c.start_date ASC
+              RETURN {{
+                date:        (c.start_date != null AND c.start_date != 'NONE') ? c.start_date : null,
+                kind:        "fact",
+                description: c.description,
+                related:     c.object_id,
+                status:      c.status,
+                source:      c.source_text
+              }}
+        """
+
+        # relationship query uses graph traversal (needs @graph), covariate query does not
+        cov_bind = {k: v for k, v in bind.items() if k != "graph"}
+        rel_rows = list(self._db.aql.execute(rel_aql, bind_vars=bind))
+        cov_rows = list(self._db.aql.execute(cov_aql, bind_vars=cov_bind))
+
+        # ── merge + sort ───────────────────────────────────────────────
+        combined = rel_rows + cov_rows
+        combined.sort(key=lambda r: (r["date"] is None, r["date"] or ""))
+        return combined[:limit]
+
     # ------------------------------------------------------------------
     # Upsert helpers
     # ------------------------------------------------------------------
