@@ -46,6 +46,10 @@ class ExtractClaimsConfig(BaseModel):
         description="The maximum number of entity gleanings to use.",
         default=graphrag_config_defaults.extract_claims.max_gleanings,
     )
+    embedding_model_id: str = Field(
+        description="The embedding model ID used for entity candidate pre-search (entity_candidates_k > 0).",
+        default=graphrag_config_defaults.extract_claims.embedding_model_id,
+    )
     entity_candidates_k: int = Field(
         description=(
             "Number of entity candidates to retrieve per text chunk via embedding search "

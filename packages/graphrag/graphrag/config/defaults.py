@@ -136,6 +136,7 @@ class ExtractClaimsDefaults:
     )
     max_gleanings: int = 1
     completion_model_id: str = DEFAULT_COMPLETION_MODEL_ID
+    embedding_model_id: str = DEFAULT_EMBEDDING_MODEL_ID
     model_instance_name: str = "extract_claims"
     entity_candidates_k: int = 0
 
@@ -331,20 +332,6 @@ class UpdateOutputStorageDefaults(StorageDefaults):
 
 
 @dataclass
-class ResolveClaimSubjectsDefaults:
-    """Default values for claim subject resolution."""
-
-    enabled: bool = False
-    embedding_model_id: str = DEFAULT_EMBEDDING_MODEL_ID
-    completion_model_id: str = DEFAULT_COMPLETION_MODEL_ID
-    model_instance_name: str = "resolve_claim_subjects"
-    high_threshold: float = 0.95
-    mid_threshold: float = 0.80
-    top_k: int = 5
-    entity_index_name: str = "entity_resolution_embeddings"
-
-
-@dataclass
 class EntityResolutionDefaults:
     """Default values for entity resolution."""
 
@@ -453,9 +440,6 @@ class GraphRagConfigDefaults:
         default_factory=EntityResolutionDefaults
     )
     extract_claims: ExtractClaimsDefaults = field(default_factory=ExtractClaimsDefaults)
-    resolve_claim_subjects: ResolveClaimSubjectsDefaults = field(
-        default_factory=ResolveClaimSubjectsDefaults
-    )
     evidence: EvidenceDefaults = field(default_factory=EvidenceDefaults)
     temporal: TemporalDefaults = field(default_factory=TemporalDefaults)
     graph_store: GraphStoreDefaults = field(default_factory=GraphStoreDefaults)

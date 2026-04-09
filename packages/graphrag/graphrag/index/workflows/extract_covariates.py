@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Same index name used by resolve_entities — populated before extract_covariates runs.
+_ENTITY_INDEX_NAME = "entity_resolution_embeddings"
+
 
 async def run_workflow(
     config: GraphRagConfig,
@@ -81,23 +84,23 @@ async def run_workflow(
         # resolution for known entities.
         k = config.extract_claims.entity_candidates_k
         if k > 0:
-            rcs_cfg = config.resolve_claim_subjects
-            emb_cfg = config.get_embedding_model_config(rcs_cfg.embedding_model_id)
+            emb_cfg = config.get_embedding_model_config(
+                config.extract_claims.embedding_model_id
+            )
             emb_model = create_embedding(
                 emb_cfg,
                 cache=context.cache.child("entity_candidate_embeddings"),
                 cache_key_creator=cache_key_creator,
             )
-            vs_config = rcs_cfg.vector_store or config.vector_store
             vector_size = getattr(emb_cfg, "vector_size", None) or 1536
             cand_schema = IndexSchema(
-                index_name=rcs_cfg.entity_index_name,
+                index_name=_ENTITY_INDEX_NAME,
                 id_field="id",
                 vector_field="vector",
                 vector_size=vector_size,
                 fields={"title": "str"},
             )
-            cand_store = create_vector_store(vs_config, cand_schema)
+            cand_store = create_vector_store(config.vector_store, cand_schema)
             cand_store.connect()
             entity_specs = await _entity_specs_per_chunk(
                 texts=text_units["text"].tolist(),
@@ -129,54 +132,6 @@ async def run_workflow(
             async_type=config.async_mode,
             resolved_entities_map=resolved_entities_map,
         )
-
-        # Optional: resolve claim subject/object IDs to canonical entity titles
-        # using embedding similarity + LLM confirmation. Controlled by
-        # config.resolve_claim_subjects. Runs inline so extract_covariates
-        # produces fully-linked covariates in a single pipeline step.
-        if config.resolve_claim_subjects.enabled and len(output) > 0:
-            from graphrag.index.operations.resolve_claim_subjects.resolve_claim_subjects import (
-                resolve_claim_subjects,
-            )
-            from graphrag.prompts.index.resolve_claim_subjects import (
-                RESOLVE_CLAIM_SUBJECT_PROMPT,
-            )
-
-            rcs_cfg = config.resolve_claim_subjects
-            emb_cfg = config.get_embedding_model_config(rcs_cfg.embedding_model_id)
-            embedding_model = create_embedding(
-                emb_cfg,
-                cache=context.cache.child("resolve_claim_subjects_embeddings"),
-                cache_key_creator=cache_key_creator,
-            )
-            llm_cfg = config.get_completion_model_config(rcs_cfg.completion_model_id)
-            llm_model = create_completion(
-                llm_cfg,
-                cache=context.cache.child(rcs_cfg.model_instance_name),
-                cache_key_creator=cache_key_creator,
-            )
-            vs_config = rcs_cfg.vector_store or config.vector_store
-            vector_size = getattr(emb_cfg, "vector_size", None) or 1536
-            index_schema = IndexSchema(
-                index_name=rcs_cfg.entity_index_name,
-                id_field="id",
-                vector_field="vector",
-                vector_size=vector_size,
-                fields={"title": "str"},
-            )
-            vector_store = create_vector_store(vs_config, index_schema)
-            vector_store.connect()
-
-            output, _ = await resolve_claim_subjects(
-                covariates_df=output,
-                embedding_model=embedding_model,
-                completion_model=llm_model,
-                vector_store=vector_store,
-                prompt=RESOLVE_CLAIM_SUBJECT_PROMPT,
-                high_threshold=rcs_cfg.high_threshold,
-                mid_threshold=rcs_cfg.mid_threshold,
-                top_k=rcs_cfg.top_k,
-            )
 
         await context.output_table_provider.write_dataframe("covariates", output)
 
