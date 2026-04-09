@@ -12,6 +12,7 @@ from graphrag_llm.tokenizer import Tokenizer
 from graphrag.data_model.covariate import Covariate
 from graphrag.data_model.entity import Entity
 from graphrag.data_model.relationship import Relationship
+from graphrag.data_model.text_unit import TextUnit
 from graphrag.query.input.retrieval.covariates import (
     get_candidate_covariates,
     to_covariate_dataframe,
@@ -165,8 +166,14 @@ def build_relationship_context(
     relationship_ranking_attribute: str = "rank",
     column_delimiter: str = "|",
     context_name: str = "Relationships",
+    text_units: dict[str, TextUnit] | None = None,
 ) -> tuple[str, pd.DataFrame]:
-    """Prepare relationship data tables as context data for system prompt."""
+    """Prepare relationship data tables as context data for system prompt.
+
+    When text_units is provided, a source_id column is added to each row,
+    linking the relationship to the short_id of its primary source text unit.
+    This implements the "no relationship without source" provenance principle.
+    """
     tokenizer = tokenizer or get_tokenizer()
     selected_relationships = _filter_relationships(
         selected_entities=selected_entities,
@@ -178,11 +185,15 @@ def build_relationship_context(
     if len(selected_entities) == 0 or len(selected_relationships) == 0:
         return "", pd.DataFrame()
 
+    include_source_id = text_units is not None
+
     # add headers
     current_context_text = f"-----{context_name}-----" + "\n"
     header = ["id", "source", "target", "description"]
     if include_relationship_weight:
         header.append("weight")
+    if include_source_id:
+        header.append("source_id")
     attribute_cols = (
         list(selected_relationships[0].attributes.keys())
         if selected_relationships[0].attributes
@@ -204,6 +215,15 @@ def build_relationship_context(
         ]
         if include_relationship_weight:
             new_context.append(str(rel.weight if rel.weight else ""))
+        if include_source_id:
+            # Resolve primary source text unit to its short_id for cross-reference
+            source_short_id = ""
+            if rel.text_unit_ids and text_units:
+                primary_id = rel.text_unit_ids[0]
+                unit = text_units.get(primary_id)
+                if unit and unit.short_id:
+                    source_short_id = unit.short_id
+            new_context.append(source_short_id)
         for field in attribute_cols:
             field_value = (
                 str(rel.attributes.get(field))
