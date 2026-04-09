@@ -49,6 +49,20 @@ For more details, see the [DRIFT Graph Search](drift_graph_search.md) page.
 
 GraphRAG includes a rudimentary implementation of basic vector RAG to make it easy to compare different search results based on the type of question you are asking. You can specify the top `k` text unit chunks to include in the summarization context.
 
+## Reranker (Cohere)
+
+All search modes that use local context (Local Search, Basic Search) support an optional Cohere Reranker pipeline step. After candidate text units and community reports are retrieved, a Cohere cross-encoder model rescores and reorders them **before** the token-budget fill. This replaces the default structural ranking (graph rank, link count) with direct query-relevance scoring.
+
+For Local Search, a **hybrid retrieval** mode is also available: a direct vector search on the text unit store (Path B) is unioned with the entity-derived candidates (Path A), giving the reranker a larger pool to work with — replicating the classic RAG oversampling pattern.
+
+See [Local Search](local_search.md) for configuration details.
+
+## Context-Only Mode
+
+All search classes support `context_only=True`: the context is assembled normally but the LLM generation step is skipped entirely. The assembled context is returned in `SearchResult.context_text` and `SearchResult.context_data`.
+
+Use this to integrate GraphRAG retrieval with your own LLM or inference pipeline.
+
 ## Question Generation
 
 This functionality takes a list of user queries and generates the next candidate questions. This is useful for generating follow-up questions in a conversation or for generating a list of questions for the investigator to dive deeper into the dataset.
