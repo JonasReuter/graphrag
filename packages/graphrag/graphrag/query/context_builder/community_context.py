@@ -38,6 +38,7 @@ def build_community_context(
     single_batch: bool = True,
     context_name: str = "Reports",
     random_state: int = 86,
+    pre_sorted: bool = False,
 ) -> tuple[str | list[str], dict[str, pd.DataFrame]]:
     """
     Prepare community report data table as context data for system prompt.
@@ -131,13 +132,14 @@ def build_community_context(
 
     def _cut_batch() -> None:
         # convert the current context records to pandas dataframe and sort by weight and rank if exist
+        # when pre_sorted=True (e.g. after Cohere reranking), skip re-sorting to preserve caller order
         record_df = _convert_report_context_to_df(
             context_records=batch_records,
             header=header,
             weight_column=(
-                community_weight_name if entities and include_community_weight else None
+                community_weight_name if (entities and include_community_weight and not pre_sorted) else None
             ),
-            rank_column=community_rank_name if include_community_rank else None,
+            rank_column=community_rank_name if (include_community_rank and not pre_sorted) else None,
         )
         if len(record_df) == 0:
             return

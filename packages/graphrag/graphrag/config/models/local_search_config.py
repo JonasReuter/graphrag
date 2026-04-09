@@ -6,6 +6,7 @@
 from pydantic import BaseModel, Field
 
 from graphrag.config.defaults import graphrag_config_defaults
+from graphrag.config.models.rerank_config import RerankConfig
 
 
 class LocalSearchConfig(BaseModel):
@@ -46,4 +47,8 @@ class LocalSearchConfig(BaseModel):
     max_context_tokens: int = Field(
         description="The maximum tokens.",
         default=graphrag_config_defaults.local_search.max_context_tokens,
+    )
+    rerank: RerankConfig = Field(
+        description="Optional Cohere reranker configuration. When enabled, text unit and community candidates are reranked by query relevance before the token-budget fill.",
+        default_factory=RerankConfig,
     )

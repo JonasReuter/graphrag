@@ -24,7 +24,9 @@ from graphrag.query.context_builder.conversation_history import ConversationHist
 from graphrag.query.context_builder.entity_extraction import (
     EntityVectorStoreKey,
     map_query_to_entities,
+    map_query_to_text_units,
 )
+from graphrag.query.context_builder.reranker import CohereReranker
 from graphrag.query.context_builder.local_context import (
     build_covariates_context,
     build_entity_context,
@@ -72,6 +74,9 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         traversal_depth: int = 2,
         top_k_seeds: int = 10,
         use_hybrid_search: bool = True,
+        reranker: CohereReranker | None = None,
+        text_unit_embeddings: VectorStore | None = None,
+        direct_text_unit_search_k: int = 50,
     ) -> None:
         """Initialize the graph context builder.
 
@@ -106,6 +111,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         self.graph_store = graph_store
         self.retriever = ArangoDBGraphRetriever(graph_store)
         self.entity_text_embeddings = entity_text_embeddings
+        self.text_unit_embeddings = text_unit_embeddings
         self.text_embedder = text_embedder
         self.community_reports_list = community_reports or []
         self.text_units = {unit.id: unit for unit in (text_units or [])}
@@ -115,6 +121,8 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         self.traversal_depth = traversal_depth
         self.top_k_seeds = top_k_seeds
         self.use_hybrid_search = use_hybrid_search
+        self.reranker = reranker
+        self.direct_text_unit_search_k = direct_text_unit_search_k
 
     def build_context(
         self,
@@ -211,6 +219,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             include_community_rank=include_community_rank,
             min_community_rank=min_community_rank,
             context_name=community_context_name,
+            query=query,
         )
         if community_context.strip():
             final_context.append(community_context)
@@ -241,6 +250,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             relationships=relationships,
             max_context_tokens=text_unit_tokens,
             column_delimiter=column_delimiter,
+            query=query,
         )
         if text_unit_context.strip():
             final_context.append(text_unit_context)
@@ -317,6 +327,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         include_community_rank: bool = False,
         min_community_rank: int = 0,
         context_name: str = "Reports",
+        query: str = "",
     ) -> tuple[str, dict[str, pd.DataFrame]]:
         """Retrieve and format community reports for selected entities."""
         if not selected_entities:
@@ -341,6 +352,16 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
 
         reports.sort(key=lambda r: r.rank or 0, reverse=True)
 
+        was_reranked = False
+        if self.reranker and query and reports:
+            docs = [
+                r.summary if use_community_summary else (r.full_content or r.summary or "")
+                for r in reports
+            ]
+            reports = self.reranker.rerank(query=query, documents=docs, metadata=reports)
+            was_reranked = True
+            logger.debug("Reranked %d community candidates with Cohere", len(reports))
+
         context_text, context_data = build_community_context(
             community_reports=reports,
             tokenizer=self.tokenizer,
@@ -352,6 +373,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             max_context_tokens=max_context_tokens,
             single_batch=True,
             context_name=context_name,
+            pre_sorted=was_reranked,
         )
         if isinstance(context_text, list) and context_text:
             context_text = "\n\n".join(context_text)
@@ -405,6 +427,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
                 include_relationship_weight=include_relationship_weight,
                 relationship_ranking_attribute=relationship_ranking_attribute,
                 context_name="Relationships",
+                text_units=self.text_units,
             )
             total_tokens = entity_tokens + len(self.tokenizer.encode(rel_context))
             if total_tokens > max_context_tokens:
@@ -465,10 +488,13 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         max_context_tokens: int = 8000,
         column_delimiter: str = "|",
         context_name: str = "Sources",
+        query: str = "",
     ) -> tuple[str, dict[str, pd.DataFrame]]:
         """Format text units associated with selected entities.
 
         Uses ArangoDB graph traversal when text_units were not pre-loaded at construction.
+        When a text_unit_embeddings store and reranker are configured, applies hybrid
+        retrieval (Path B) and reranking before token-budget fill.
         """
         if not selected_entities:
             return ("", {context_name.lower(): pd.DataFrame()})
@@ -478,9 +504,10 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         if not text_units:
             return ("", {context_name.lower(): pd.DataFrame()})
 
-        unit_info_list = []
+        unit_info_list: list[tuple] = []
         text_unit_ids_seen: set[str] = set()
 
+        # Path A: entity-derived text units
         for index, entity in enumerate(selected_entities):
             entity_relationships = [
                 rel for rel in relationships
@@ -493,9 +520,32 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
                     text_unit_ids_seen.add(text_id)
                     unit_info_list.append((selected_unit, index, num_relationships))
 
+        # Path B: direct text unit vector search (hybrid retrieval)
+        if self.text_unit_embeddings and query:
+            direct_units = map_query_to_text_units(
+                query=query,
+                text_unit_vectorstore=self.text_unit_embeddings,
+                text_embedder=self.text_embedder,
+                all_text_units=text_units,
+                k=self.direct_text_unit_search_k,
+            )
+            for unit in direct_units:
+                if unit.id not in text_unit_ids_seen:
+                    text_unit_ids_seen.add(unit.id)
+                    unit_info_list.append((deepcopy(unit), len(selected_entities), 0))
+
         unit_info_list.sort(key=lambda x: (x[1], -x[2]))
         selected_text_units = [item[0] for item in unit_info_list]
 
+        if self.reranker and query and selected_text_units:
+            selected_text_units = self.reranker.rerank(
+                query=query,
+                documents=[u.text for u in selected_text_units],
+                metadata=selected_text_units,
+            )
+            logger.debug("Reranked %d text unit candidates with Cohere", len(selected_text_units))
+
+        relationships_dict = {r.id: r for r in relationships if r.id}
         context_text, context_data = build_text_unit_context(
             text_units=selected_text_units,
             tokenizer=self.tokenizer,
@@ -503,5 +553,6 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             shuffle_data=False,
             context_name=context_name,
             column_delimiter=column_delimiter,
+            relationships=relationships_dict,
         )
         return (str(context_text), context_data)

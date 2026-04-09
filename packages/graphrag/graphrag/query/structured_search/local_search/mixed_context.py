@@ -26,7 +26,9 @@ from graphrag.query.context_builder.conversation_history import (
 from graphrag.query.context_builder.entity_extraction import (
     EntityVectorStoreKey,
     map_query_to_entities,
+    map_query_to_text_units,
 )
+from graphrag.query.context_builder.reranker import CohereReranker
 from graphrag.query.context_builder.evidence_context import build_evidence_context
 from graphrag.query.context_builder.local_context import (
     build_covariates_context,
@@ -66,6 +68,9 @@ class LocalSearchMixedContext(LocalContextBuilder):
         evidence: list[Evidence] | None = None,
         tokenizer: Tokenizer | None = None,
         embedding_vectorstore_key: str = EntityVectorStoreKey.ID,
+        text_unit_embeddings: VectorStore | None = None,
+        reranker: CohereReranker | None = None,
+        direct_text_unit_search_k: int = 50,
     ):
         if community_reports is None:
             community_reports = []
@@ -88,9 +93,12 @@ class LocalSearchMixedContext(LocalContextBuilder):
         self.covariates = covariates
         self.evidence = evidence
         self.entity_text_embeddings = entity_text_embeddings
+        self.text_unit_embeddings = text_unit_embeddings
         self.text_embedder = text_embedder
         self.tokenizer = tokenizer or get_tokenizer()
         self.embedding_vectorstore_key = embedding_vectorstore_key
+        self.reranker = reranker
+        self.direct_text_unit_search_k = direct_text_unit_search_k
 
     def build_context(
         self,
@@ -179,6 +187,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
         # build community context
         community_tokens = max(int(max_context_tokens * community_prop), 0)
         community_context, community_context_data = self._build_community_context(
+            query=query,
             selected_entities=selected_entities,
             max_context_tokens=community_tokens,
             use_community_summary=use_community_summary,
@@ -212,6 +221,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
 
         text_unit_tokens = max(int(max_context_tokens * text_unit_prop), 0)
         text_unit_context, text_unit_context_data = self._build_text_unit_context(
+            query=query,
             selected_entities=selected_entities,
             max_context_tokens=text_unit_tokens,
             return_candidate_context=return_candidate_context,
@@ -251,6 +261,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
         min_community_rank: int = 0,
         return_candidate_context: bool = False,
         context_name: str = "Reports",
+        query: str = "",
     ) -> tuple[str, dict[str, pd.DataFrame]]:
         """Add community data to the context window until it hits the max_context_tokens limit."""
         if len(selected_entities) == 0 or len(self.community_reports) == 0:
@@ -265,23 +276,33 @@ class LocalSearchMixedContext(LocalContextBuilder):
                         community_matches.get(community_id, 0) + 1
                     )
 
-        # sort communities by number of matched entities and rank
+        # sort communities by number of matched entities and rank (no object mutation)
         selected_communities = [
             self.community_reports[community_id]
             for community_id in community_matches
             if community_id in self.community_reports
         ]
-        for community in selected_communities:
-            if community.attributes is None:
-                community.attributes = {}
-            community.attributes["matches"] = community_matches[community.community_id]
         selected_communities.sort(
-            key=lambda x: (x.attributes["matches"], x.rank),  # type: ignore
-            reverse=True,  # type: ignore
+            key=lambda c: (community_matches.get(c.community_id, 0), c.rank or 0),
+            reverse=True,
         )
-        for community in selected_communities:
-            del community.attributes["matches"]  # type: ignore
 
+        # rerank community candidates by query relevance (replaces structural sort order)
+        if self.reranker and query and selected_communities:
+            docs = [
+                c.summary if use_community_summary else (c.full_content or c.summary or "")
+                for c in selected_communities
+            ]
+            selected_communities = self.reranker.rerank(
+                query=query,
+                documents=docs,
+                metadata=selected_communities,
+            )
+            logger.debug(
+                "Reranked %d community candidates with Cohere", len(selected_communities)
+            )
+
+        was_reranked = bool(self.reranker and query and selected_communities)
         context_text, context_data = build_community_context(
             community_reports=selected_communities,
             tokenizer=self.tokenizer,
@@ -293,6 +314,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
             max_context_tokens=max_context_tokens,
             single_batch=True,
             context_name=context_name,
+            pre_sorted=was_reranked,
         )
         if isinstance(context_text, list) and len(context_text) > 0:
             context_text = "\n\n".join(context_text)
@@ -330,24 +352,29 @@ class LocalSearchMixedContext(LocalContextBuilder):
         return_candidate_context: bool = False,
         column_delimiter: str = "|",
         context_name: str = "Sources",
+        query: str = "",
     ) -> tuple[str, dict[str, pd.DataFrame]]:
-        """Rank matching text units and add them to the context window until it hits the max_context_tokens limit."""
+        """Rank matching text units and add them to the context window until it hits the max_context_tokens limit.
+
+        When a text_unit_embeddings store and reranker are configured, uses hybrid retrieval:
+        - Path A (entity-derived): text units linked to selected entities
+        - Path B (direct vector search): top-k text units by semantic similarity to the query
+        The union of both paths is reranked by Cohere before token-budget fill.
+        """
         if not selected_entities or not self.text_units:
             return ("", {context_name.lower(): pd.DataFrame()})
-        selected_text_units = []
-        text_unit_ids_set = set()
 
-        unit_info_list = []
+        text_unit_ids_set: set[str] = set()
+        unit_info_list: list[tuple[TextUnit, int, int]] = []
         relationship_values = list(self.relationships.values())
 
+        # Path A: entity-derived text units (existing logic)
         for index, entity in enumerate(selected_entities):
-            # get matching relationships
             entity_relationships = [
                 rel
                 for rel in relationship_values
                 if rel.source == entity.title or rel.target == entity.title
             ]
-
             for text_id in entity.text_unit_ids or []:
                 if text_id not in text_unit_ids_set and text_id in self.text_units:
                     selected_unit = deepcopy(self.text_units[text_id])
@@ -357,10 +384,40 @@ class LocalSearchMixedContext(LocalContextBuilder):
                     text_unit_ids_set.add(text_id)
                     unit_info_list.append((selected_unit, index, num_relationships))
 
-        # sort by entity_order and the number of relationships desc
-        unit_info_list.sort(key=lambda x: (x[1], -x[2]))
+        # Path B: direct text unit vector search (hybrid retrieval)
+        if self.text_unit_embeddings and query:
+            direct_units = map_query_to_text_units(
+                query=query,
+                text_unit_vectorstore=self.text_unit_embeddings,
+                text_embedder=self.text_embedder,
+                all_text_units=self.text_units,
+                k=self.direct_text_unit_search_k,
+            )
+            for unit in direct_units:
+                if unit.id not in text_unit_ids_set:
+                    text_unit_ids_set.add(unit.id)
+                    # index=len(selected_entities) places Path B units after Path A units
+                    unit_info_list.append((deepcopy(unit), len(selected_entities), 0))
+            logger.debug(
+                "Hybrid text unit retrieval: %d Path-A + %d Path-B candidates",
+                len(text_unit_ids_set) - len(direct_units),
+                len(direct_units),
+            )
 
+        # sort by entity_order and the number of relationships desc (baseline ranking)
+        unit_info_list.sort(key=lambda x: (x[1], -x[2]))
         selected_text_units = [unit[0] for unit in unit_info_list]
+
+        # rerank the full candidate pool by query relevance
+        if self.reranker and query and selected_text_units:
+            selected_text_units = self.reranker.rerank(
+                query=query,
+                documents=[u.text for u in selected_text_units],
+                metadata=selected_text_units,
+            )
+            logger.debug(
+                "Reranked %d text unit candidates with Cohere", len(selected_text_units)
+            )
 
         context_text, context_data = build_text_unit_context(
             text_units=selected_text_units,
@@ -369,6 +426,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
             shuffle_data=False,
             context_name=context_name,
             column_delimiter=column_delimiter,
+            relationships=self.relationships,
         )
 
         if return_candidate_context:
@@ -430,7 +488,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
             current_context_data = {}
             added_entities.append(entity)
 
-            # build relationship context
+            # build relationship context (with source provenance)
             (
                 relationship_context,
                 relationship_context_data,
@@ -444,6 +502,7 @@ class LocalSearchMixedContext(LocalContextBuilder):
                 include_relationship_weight=include_relationship_weight,
                 relationship_ranking_attribute=relationship_ranking_attribute,
                 context_name="Relationships",
+                text_units=self.text_units,
             )
             current_context.append(relationship_context)
             current_context_data["relationships"] = relationship_context_data
