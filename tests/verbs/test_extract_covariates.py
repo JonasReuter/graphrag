@@ -117,14 +117,14 @@ async def test_extract_covariates():
     )
 
 
-async def test_extract_covariates_with_inline_resolution():
-    """When resolve_claim_subjects is enabled, run_workflow resolves subject IDs inline."""
+async def test_extract_covariates_entity_candidates_injected():
+    """When entity_candidates_k > 0, pre-search injects entity titles per chunk."""
     context = await create_test_context(storage=["text_units"])
 
     config = get_default_graphrag_config()
     config.extract_claims.enabled = True
     config.extract_claims.description = "description"
-    config.resolve_claim_subjects.enabled = True
+    config.extract_claims.entity_candidates_k = 5
 
     llm_settings = config.get_completion_model_config(
         config.extract_claims.completion_model_id
@@ -132,21 +132,20 @@ async def test_extract_covariates_with_inline_resolution():
     llm_settings.type = LLMProviderType.MockLLM
     llm_settings.mock_responses = MOCK_LLM_RESPONSES  # type: ignore
 
-    # Mock vector store: count > 0, returns high-score match for "COMPANY A"
     mock_result = MagicMock()
-    mock_result.score = 0.97
-    mock_result.document.data = {"title": "COMPANY A CANONICAL"}
-
+    mock_result.document.data = {"title": "COMPANY A"}
     mock_store = MagicMock()
-    mock_store.count.return_value = 5
+    mock_store.count.return_value = 3
     mock_store.similarity_search_by_vector.return_value = [mock_result]
     mock_store.connect.return_value = None
 
-    # Mock embedding model: returns a fixed vector
-    mock_emb_response = MagicMock()
-    mock_emb_response.embeddings = [MagicMock(tolist=lambda: [0.1] * 4)]
+    def _fake_embed(input):
+        resp = MagicMock()
+        resp.embeddings = [MagicMock(tolist=lambda v=[0.1] * 4: v) for _ in input]
+        return resp
+
     mock_emb_model = MagicMock()
-    mock_emb_model.embedding_async = AsyncMock(return_value=mock_emb_response)
+    mock_emb_model.embedding_async = AsyncMock(side_effect=_fake_embed)
 
     with (
         patch(
@@ -160,22 +159,20 @@ async def test_extract_covariates_with_inline_resolution():
     ):
         await run_workflow(config, context)
 
-    actual = await context.output_table_provider.read_dataframe("covariates")
-
-    # The mock LLM extract returns "COMPANY A"; the mock vector store maps it
-    # to "COMPANY A CANONICAL" at score 0.97 (above high_threshold=0.95)
-    assert actual["subject_id"][0] == "COMPANY A CANONICAL"
+    # Embedding was called for the pre-search
     mock_emb_model.embedding_async.assert_awaited()
+    # Vector store was searched
+    mock_store.similarity_search_by_vector.assert_called()
 
 
-async def test_extract_covariates_resolution_disabled_skips_embedding():
-    """When resolve_claim_subjects is disabled, no embedding calls are made."""
+async def test_extract_covariates_entity_candidates_disabled_skips_embedding():
+    """When entity_candidates_k == 0, no embedding pre-search is performed."""
     context = await create_test_context(storage=["text_units"])
 
     config = get_default_graphrag_config()
     config.extract_claims.enabled = True
     config.extract_claims.description = "description"
-    config.resolve_claim_subjects.enabled = False  # explicitly off
+    config.extract_claims.entity_candidates_k = 0  # disabled
 
     llm_settings = config.get_completion_model_config(
         config.extract_claims.completion_model_id

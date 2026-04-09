@@ -26,12 +26,11 @@ from graphrag.config.models.drift_search_config import DRIFTSearchConfig
 from graphrag.config.models.embed_text_config import EmbedTextConfig
 from graphrag.config.models.entity_resolution_config import EntityResolutionConfig
 from graphrag.config.models.evidence_config import EvidenceConfig
-from graphrag.config.models.graph_store_config import GraphStoreConfig
 from graphrag.config.models.extract_claims_config import ExtractClaimsConfig
-from graphrag.config.models.resolve_claim_subjects_config import ResolveClaimSubjectsConfig
 from graphrag.config.models.extract_graph_config import ExtractGraphConfig
 from graphrag.config.models.extract_graph_nlp_config import ExtractGraphNLPConfig
 from graphrag.config.models.global_search_config import GlobalSearchConfig
+from graphrag.config.models.graph_store_config import GraphStoreConfig
 from graphrag.config.models.local_search_config import LocalSearchConfig
 from graphrag.config.models.prune_graph_config import PruneGraphConfig
 from graphrag.config.models.reporting_config import ReportingConfig
@@ -228,12 +227,6 @@ class GraphRagConfig(BaseModel):
         ),
     )
     """The claim extraction configuration to use."""
-
-    resolve_claim_subjects: ResolveClaimSubjectsConfig = Field(
-        description="Resolve claim subject/object IDs to canonical entity titles after extraction.",
-        default=ResolveClaimSubjectsConfig(),
-    )
-    """Claim subject resolution configuration."""
 
     evidence: EvidenceConfig = Field(
         description="The evidence extraction and verification configuration.",
