@@ -167,13 +167,9 @@ class GraphExtractor:
                     "source_id": source_id,
                 }
 
-                # Temporal-enhanced format: entity has temporal_scope at index 4
-                # (5 fields total). Only applies when NOT using evidence format
-                # (evidence has 7 fields with confidence/completeness/source_span).
-                if extract_temporal and not extract_evidence and len(record_attributes) >= 5:
-                    temporal_scope = clean_str(record_attributes[4])
-                    if temporal_scope:
-                        entity_dict["temporal_scope"] = temporal_scope
+                # Note: temporal_scope is intentionally NOT extracted for entities.
+                # Entities (persons, organizations) exist independently of document dates.
+                # Only relationships carry temporal_scope (when did this link apply?).
 
                 entities.append(entity_dict)
 
