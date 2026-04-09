@@ -687,3 +687,46 @@ def drift_graph_search_streaming(
         callbacks=callbacks,
     )
     return search_engine.stream_search(query=query)
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+def covariate_report(
+    config: GraphRagConfig,
+    subject: str | None = None,
+    covariate_type: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return covariates directly from ArangoDB — no LLM, deterministic.
+
+    Queries the covariates collection with optional filters and returns results
+    sorted chronologically by start_date. Useful for structured reports like
+    purchase histories or negotiation timelines.
+
+    Parameters
+    ----------
+    config:
+        GraphRAG configuration (graph_store must be enabled).
+    subject:
+        Filter by customer / entity name (case-insensitive). None = all subjects.
+    covariate_type:
+        Filter by claim type (e.g. "PURCHASE", "PRODUCT_INQUIRY"). None = all types.
+    status:
+        Filter by status (e.g. "CONFIRMED", "PENDING"). None = all statuses.
+    """
+    from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
+
+    graph_cfg = config.graph_store
+    graph_store = ArangoDBGraphStore(
+        url=graph_cfg.url,
+        username=graph_cfg.username,
+        password=graph_cfg.password,
+        db_name=graph_cfg.db_name,
+        graph_name=graph_cfg.graph_name,
+        vector_size=graph_cfg.vector_size,
+    )
+    graph_store.connect()
+    return graph_store.get_all_covariates(
+        subject=subject,
+        covariate_type=covariate_type,
+        status=status,
+    )

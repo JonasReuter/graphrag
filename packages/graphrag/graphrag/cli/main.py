@@ -501,3 +501,47 @@ def _query_cli(
             )
         case _:
             raise ValueError(INVALID_METHOD_ERROR)
+
+
+@app.command("report")
+def _report_cli(
+    root: Path = typer.Option(
+        Path.cwd(),
+        "--root",
+        "-r",
+        help="The project root directory.",
+        exists=True,
+        dir_okay=True,
+        file_okay=False,
+        writable=True,
+        resolve_path=True,
+        autocompletion=ROOT_AUTOCOMPLETE,
+    ),
+    subject: str | None = typer.Option(
+        None,
+        "--customer",
+        "-c",
+        help="Filter by customer / entity name (case-insensitive).",
+    ),
+    covariate_type: str | None = typer.Option(
+        None,
+        "--type",
+        "-t",
+        help="Filter by claim type (e.g. PURCHASE, PRODUCT_INQUIRY).",
+    ),
+    status: str | None = typer.Option(
+        None,
+        "--status",
+        "-s",
+        help="Filter by claim status (e.g. CONFIRMED, PENDING).",
+    ),
+) -> None:
+    """Print a chronological covariate report from ArangoDB (no LLM required)."""
+    from graphrag.cli.query import run_covariate_report
+
+    run_covariate_report(
+        root_dir=root,
+        subject=subject,
+        covariate_type=covariate_type,
+        status=status,
+    )

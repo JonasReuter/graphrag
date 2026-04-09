@@ -492,6 +492,67 @@ def run_graph_search(
     return response, context_data
 
 
+def run_covariate_report(
+    root_dir: Path,
+    subject: str | None = None,
+    covariate_type: str | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    """Print a chronological covariate report from ArangoDB without LLM inference.
+
+    Queries the covariates collection directly via AQL and prints results as a
+    formatted table grouped by customer and sorted by date.
+    """
+    config = load_config(root_dir=root_dir)
+    results = api.covariate_report(
+        config=config,
+        subject=subject,
+        covariate_type=covariate_type,
+        status=status,
+    )
+
+    if not results:
+        print("No covariates found.")
+        return results
+
+    # Deduplicate: same customer+type+date+description = same claim from overlapping chunks
+    seen: set[tuple] = set()
+    unique_results = []
+    for row in results:
+        key = (
+            row.get("customer"),
+            row.get("type"),
+            row.get("start_date"),
+            row.get("description"),
+        )
+        if key not in seen:
+            seen.add(key)
+            unique_results.append(row)
+
+    # Group by customer for readability
+    from collections import defaultdict
+    by_customer: dict[str, list[dict]] = defaultdict(list)
+    for row in unique_results:
+        by_customer[row.get("customer") or "UNKNOWN"].append(row)
+
+    for customer, rows in sorted(by_customer.items()):
+        print(f"\n{'='*60}")
+        print(f"  {customer}")
+        print(f"{'='*60}")
+        for row in rows:
+            date = row.get("start_date") or "-"
+            if date and len(date) > 10:
+                date = date[:10]
+            ctype = row.get("type", "")
+            cstatus = row.get("status", "")
+            desc = row.get("description", "")
+            print(f"  [{date}] {ctype} ({cstatus})")
+            print(f"    {desc}")
+
+    print()
+    return results
+
+
 def _resolve_output_files(
     config: GraphRagConfig,
     output_list: list[str],
