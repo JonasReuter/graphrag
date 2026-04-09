@@ -512,6 +512,8 @@ def _query_cli(
                 streaming=streaming,
                 query=query,
                 verbose=verbose,
+                from_date=from_date,
+                until_date=until_date,
             )
         case _:
             raise ValueError(INVALID_METHOD_ERROR)

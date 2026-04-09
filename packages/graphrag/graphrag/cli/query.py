@@ -454,6 +454,8 @@ def run_graph_search(
     streaming: bool,
     query: str,
     verbose: bool,
+    from_date: str | None = None,
+    until_date: str | None = None,
 ):
     """Perform a graph search using ArangoDB as single source of truth.
 
@@ -486,6 +488,8 @@ def run_graph_search(
                 query=query,
                 callbacks=[callbacks],
                 verbose=verbose,
+                from_date=from_date,
+                until_date=until_date,
             ):
                 full_response += stream_chunk
                 print(stream_chunk, end="")
@@ -501,6 +505,8 @@ def run_graph_search(
             response_type=response_type,
             query=query,
             verbose=verbose,
+            from_date=from_date,
+            until_date=until_date,
         )
     )
     print(response)

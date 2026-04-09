@@ -18,6 +18,10 @@ from graphrag.data_model.covariate import Covariate
 from graphrag.data_model.entity import Entity
 from graphrag.data_model.relationship import Relationship
 from graphrag.data_model.text_unit import TextUnit
+from graphrag.query.structured_search.local_search.mixed_context import (
+    _entity_in_time_window,
+    _relationship_in_time_window,
+)
 from graphrag.query.context_builder.builders import ContextBuilderResult
 from graphrag.query.context_builder.community_context import build_community_context
 from graphrag.query.context_builder.conversation_history import ConversationHistory
@@ -174,6 +178,23 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             depth=depth,
             k=self.top_k_seeds,
         )
+
+        # Apply temporal filters when a time window is requested
+        from_date: str | None = kwargs.get("from_date")  # type: ignore[assignment]
+        until_date: str | None = kwargs.get("until_date")  # type: ignore[assignment]
+        if from_date or until_date:
+            entities = [
+                e for e in entities
+                if _entity_in_time_window(e, from_date, until_date)
+            ]
+            relationships = [
+                r for r in relationships
+                if _relationship_in_time_window(r, from_date, until_date)
+            ]
+            logger.debug(
+                "Temporal filter [%s → %s]: %d entities, %d relationships remain",
+                from_date, until_date, len(entities), len(relationships),
+            )
 
         # Apply include/exclude name filters
         if include_entity_names:
