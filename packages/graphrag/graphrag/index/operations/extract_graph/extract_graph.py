@@ -89,9 +89,10 @@ async def extract_graph(
     relationships = filter_orphan_relationships(relationships, entities)
     evidence = _collect_evidence(evidence_dfs)
 
-    # Resolve temporal_scope into valid_from/valid_until
+    # Resolve temporal_scope -> valid_from/valid_until for relationships only.
+    # Entities (persons, organizations) do NOT get valid_from/valid_until from
+    # the extraction prompt -- their existence is not time-bounded by document dates.
     if extract_temporal:
-        entities = _resolve_temporal_scopes(entities)
         relationships = _resolve_temporal_scopes(relationships)
 
     return (entities, relationships, evidence)
@@ -160,10 +161,6 @@ def _merge_entities(
 ) -> pd.DataFrame:
     all_entities = pd.concat(entity_dfs, ignore_index=True)
 
-    # Ensure temporal_scope column exists for aggregation
-    if "temporal_scope" not in all_entities.columns:
-        all_entities["temporal_scope"] = None
-
     merged = (
         all_entities
         .groupby(["title", "type"], sort=False)
@@ -171,12 +168,11 @@ def _merge_entities(
             description=("description", list),
             text_unit_ids=("source_id", list),
             frequency=("source_id", "count"),
-            _temporal_scopes=("temporal_scope", list),
         )
         .reset_index()
     )
 
-    # Compute temporal bounds from text unit timestamps
+    # Compute document-level temporal bounds (when was this entity first/last seen)
     observed_at_list = []
     last_observed_at_list = []
     for _, row in merged.iterrows():
@@ -187,10 +183,6 @@ def _merge_entities(
         last_observed_at_list.append(last_obs)
     merged["observed_at"] = observed_at_list
     merged["last_observed_at"] = last_observed_at_list
-
-    # Pick first non-empty temporal_scope from LLM extractions
-    merged["temporal_scope"] = merged["_temporal_scopes"].apply(_first_non_empty)
-    merged = merged.drop(columns=["_temporal_scopes"])
 
     return merged
 
