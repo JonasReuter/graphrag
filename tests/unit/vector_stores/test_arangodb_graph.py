@@ -124,8 +124,8 @@ class TestSetupGraph:
 
         store.setup_graph()
 
-        # 4 document + 3 edge collections
-        assert db.create_collection.call_count == 7
+        # 5 document + 4 edge collections
+        assert db.create_collection.call_count == 9
         db.create_graph.assert_called_once()
 
     def test_idempotent_when_all_exist(self):
@@ -154,6 +154,7 @@ class TestSetupGraph:
             "relationships",
             "entity_community_membership",
             "entity_text_unit",
+            "entity_covariate",
         }
 
 
@@ -521,3 +522,132 @@ class TestHybridSearch:
         # Fallback executed without raising
         assert isinstance(verts, list)
         assert isinstance(edges, list)
+
+    def test_hybrid_search_includes_seeds(self):
+        """Seed entities must be included in the returned vertices, not just their neighbors."""
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([
+            {"vertex": {"id": "seed-1", "title": "Seed"}, "edge": None},
+            {"vertex": {"id": "neighbor-1", "title": "Neighbor"}, "edge": {"id": "e1"}},
+        ])
+
+        verts, edges = store.hybrid_search([0.1, 0.2, 0.3, 0.4], depth=1, k=1)
+
+        titles = [v.get("title") for v in verts]
+        assert "Seed" in titles
+        assert "Neighbor" in titles
+        assert len(edges) == 1  # null edge not counted
+
+
+# ---------------------------------------------------------------------------
+# get_text_units_for_entities() — AQL traversal
+# ---------------------------------------------------------------------------
+
+class TestGetTextUnitsForEntities:
+    def test_returns_empty_list_for_empty_input(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        result = store.get_text_units_for_entities([])
+        db.aql.execute.assert_not_called()
+        assert result == []
+
+    def test_returns_text_unit_docs(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([
+            {"id": "tu-1", "text": "hello world"},
+            {"id": "tu-2", "text": "second unit"},
+        ])
+        result = store.get_text_units_for_entities(["ent-1"])
+        assert len(result) == 2
+        assert result[0]["id"] == "tu-1"
+
+    def test_passes_entity_ids_and_graph_name(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([])
+        store.get_text_units_for_entities(["abc", "def"])
+        _, kwargs = db.aql.execute.call_args
+        bind_vars = kwargs.get("bind_vars") or db.aql.execute.call_args[0][1]
+        assert bind_vars["entity_ids"] == ["abc", "def"]
+        assert bind_vars["graph"] == store.graph_name
+
+
+# ---------------------------------------------------------------------------
+# get_covariates_for_entities() — AQL traversal
+# ---------------------------------------------------------------------------
+
+class TestGetCovariatesForEntities:
+    def test_returns_empty_list_for_empty_input(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        result = store.get_covariates_for_entities([])
+        db.aql.execute.assert_not_called()
+        assert result == []
+
+    def test_returns_covariate_docs(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        db.aql.execute.return_value = iter([
+            {"id": "cov-1", "subject_id": "Entity A", "covariate_type": "claim"},
+        ])
+        result = store.get_covariates_for_entities(["ent-1"])
+        assert len(result) == 1
+        assert result[0]["covariate_type"] == "claim"
+
+
+# ---------------------------------------------------------------------------
+# upsert_covariates() — documents + edges
+# ---------------------------------------------------------------------------
+
+class TestUpsertCovariates:
+    def test_upserts_docs_and_edges(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        coll = MagicMock()
+        db.collection.return_value = coll
+        title_to_id = {"Entity A": "uuid-a"}
+        rows = [{"id": "cov-1", "subject_id": "Entity A", "covariate_type": "claim"}]
+
+        count = store.upsert_covariates(rows, title_to_id)
+
+        assert count == 1
+        # Two _bulk_upsert calls: one for docs, one for edges
+        assert coll.import_bulk.call_count == 2
+
+    def test_skips_edge_when_entity_not_found(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        coll = MagicMock()
+        db.collection.return_value = coll
+        rows = [{"id": "cov-1", "subject_id": "Unknown Entity", "covariate_type": "claim"}]
+
+        count = store.upsert_covariates(rows, title_to_id={})
+
+        assert count == 1
+        # Only one _bulk_upsert call: docs only, no edges
+        assert coll.import_bulk.call_count == 1
+
+    def test_returns_zero_for_empty_rows(self):
+        store = _make_store()
+        _attach_mock_db(store)
+        assert store.upsert_covariates([], {}) == 0
+
+    def test_edge_uses_entity_and_covariate_ids(self):
+        store = _make_store()
+        db = _attach_mock_db(store)
+        captured_batches = []
+        coll = MagicMock()
+        coll.import_bulk.side_effect = lambda batch, **kw: captured_batches.append(batch)
+        db.collection.return_value = coll
+
+        store.upsert_covariates(
+            [{"id": "cov-1", "subject_id": "Entity A", "covariate_type": "claim"}],
+            title_to_id={"Entity A": "uuid-a"},
+        )
+
+        # Second batch is the edge batch
+        edge_batch = captured_batches[1]
+        assert edge_batch[0]["_from"] == "entities/uuid-a"
+        assert edge_batch[0]["_to"] == "covariates/cov-1"
