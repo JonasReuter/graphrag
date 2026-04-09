@@ -5,6 +5,8 @@
 
 import logging
 
+import pandas as pd
+
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 from graphrag.data_model.data_reader import DataReader
 from graphrag.index.operations.compute_confidence.compute_confidence import (
@@ -58,8 +60,23 @@ async def run_workflow(
     await context.output_table_provider.write_dataframe("entities", enriched_entities)
     await context.output_table_provider.write_dataframe("relationships", enriched_relationships)
 
-    if len(contradictions_df) > 0:
-        await context.output_table_provider.write_dataframe("contradictions", contradictions_df)
+    # Merge with any contradictions already written by earlier workflows (e.g. resolve_entities)
+    existing_contradictions: pd.DataFrame | None = None
+    try:
+        existing_contradictions = await context.output_table_provider.read_dataframe(
+            "contradictions"
+        )
+    except Exception:
+        pass
+
+    frames = [
+        df
+        for df in [existing_contradictions, contradictions_df if len(contradictions_df) > 0 else None]
+        if df is not None and len(df) > 0
+    ]
+    if frames:
+        combined = pd.concat(frames, ignore_index=True)
+        await context.output_table_provider.write_dataframe("contradictions", combined)
 
     logger.info(
         "Workflow completed: compute_confidence — %d contradictions found",

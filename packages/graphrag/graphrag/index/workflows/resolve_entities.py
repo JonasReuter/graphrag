@@ -107,5 +107,16 @@ async def run_workflow(
             window_tokens=er_config.window_tokens,
         )
 
-    logger.info("Workflow completed: resolve_entities")
+    contradictions_df = result.get("contradictions") if result else None
+    if contradictions_df is not None and len(contradictions_df) > 0:
+        await context.output_table_provider.write_dataframe(
+            "contradictions", contradictions_df
+        )
+        logger.info(
+            "Workflow completed: resolve_entities — %d same_as contradiction(s) written",
+            len(contradictions_df),
+        )
+    else:
+        logger.info("Workflow completed: resolve_entities")
+
     return WorkflowFunctionOutput(result=result)
