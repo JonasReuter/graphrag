@@ -128,6 +128,21 @@ async def index_graph_store(
         logger.warning("Could not load text units: %s", exc)
         text_unit_rows = []
 
+    # --- Phase 6b: Covariates (optional — extract_claims must be enabled) ---
+    logger.info("Loading and upserting covariates...")
+    try:
+        covariates_df = await reader.covariates()
+        if covariates_df is not None and len(covariates_df) > 0:
+            covariate_rows = covariates_df.to_dict("records")
+            counts["covariates"] = graph_store.upsert_covariates(
+                covariate_rows, title_to_id=title_to_id
+            )
+        else:
+            counts["covariates"] = 0
+    except Exception as exc:
+        logger.info("No covariates to index (extract_claims likely disabled): %s", exc)
+        counts["covariates"] = 0
+
     # --- Phase 7: Relationships as edges ---
     logger.info("Loading and upserting relationships as graph edges...")
     relationships_df = await reader.relationships()
