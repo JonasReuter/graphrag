@@ -8,6 +8,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import pandas as pd
+
 from graphrag_storage.tables.table import Table
 from graphrag_vectors import VectorStore, VectorStoreDocument
 
@@ -99,15 +101,23 @@ async def resolve_entities(
 
     if not merge_map:
         logger.info("resolve_entities: no merges confirmed — graph unchanged.")
-        return {"entities": [], "relationships": []}
+        return {"entities": [], "relationships": [], "contradictions": pd.DataFrame()}
 
     logger.info("resolve_entities: applying %d merge mappings", len(merge_map))
 
     # --- Phase 5: apply merges ---
     entity_samples = await _rewrite_entities(entities_table, all_entities, merge_map)
     relationship_samples = await _rewrite_relationships(relationships_table, merge_map)
+    contradictions_df = _build_contradictions_from_merge_map(merge_map)
 
-    return {"entities": entity_samples, "relationships": relationship_samples}
+    logger.info(
+        "resolve_entities: recorded %d same_as contradiction(s)", len(contradictions_df)
+    )
+    return {
+        "entities": entity_samples,
+        "relationships": relationship_samples,
+        "contradictions": contradictions_df,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -432,3 +442,39 @@ async def _rewrite_relationships(
             samples.append(row)
 
     return samples
+
+
+_CONTRADICTION_COLUMNS = [
+    "id", "human_readable_id", "relation_type",
+    "subject_a_type", "subject_a_id",
+    "subject_b_type", "subject_b_id",
+    "description", "confidence", "detection_method",
+]
+
+
+def _build_contradictions_from_merge_map(
+    merge_map: dict[str, str],
+) -> pd.DataFrame:
+    """Build a contradictions DataFrame from LLM-confirmed entity merges.
+
+    Each alias→canonical pair becomes a ``same_as`` Contradiction record,
+    preserving the provenance of every entity deduplication decision.
+    """
+    if not merge_map:
+        return pd.DataFrame(columns=_CONTRADICTION_COLUMNS)
+
+    rows = []
+    for i, (alias, canonical) in enumerate(merge_map.items()):
+        rows.append({
+            "id": str(uuid4()),
+            "human_readable_id": str(i),
+            "relation_type": "same_as",
+            "subject_a_type": "entity",
+            "subject_a_id": alias,
+            "subject_b_type": "entity",
+            "subject_b_id": canonical,
+            "description": f'"{alias}" is a duplicate of "{canonical}" (LLM-confirmed)',
+            "confidence": 0.9,
+            "detection_method": "llm_verified",
+        })
+    return pd.DataFrame(rows)

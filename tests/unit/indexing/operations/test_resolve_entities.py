@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 from graphrag.index.operations.resolve_entities.resolve_entities import (
+    _build_contradictions_from_merge_map,
     _groups_from_pairs,
     _rewrite_entities,
     _rewrite_relationships,
@@ -224,3 +225,58 @@ class TestRewriteRelationships:
         await _rewrite_relationships(table, {})
         ids = [r["human_readable_id"] for r in table.written]
         assert ids == [0, 1]
+
+
+# ---------------------------------------------------------------------------
+# _build_contradictions_from_merge_map
+# ---------------------------------------------------------------------------
+
+
+class TestBuildContradictionsFromMergeMap:
+    def test_empty_merge_map_returns_empty_df(self):
+        df = _build_contradictions_from_merge_map({})
+        assert len(df) == 0
+        assert "relation_type" in df.columns
+
+    def test_one_merge_produces_one_row(self):
+        df = _build_contradictions_from_merge_map({"HERR MUSTERMANN": "SEBASTIAN MUSTERMANN"})
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["relation_type"] == "same_as"
+        assert row["subject_a_id"] == "HERR MUSTERMANN"
+        assert row["subject_b_id"] == "SEBASTIAN MUSTERMANN"
+        assert row["subject_a_type"] == "entity"
+        assert row["subject_b_type"] == "entity"
+
+    def test_multiple_merges_produce_multiple_rows(self):
+        merge_map = {
+            "HERR MUSTERMANN": "SEBASTIAN MUSTERMANN",
+            "Apple Inc.": "Apple",
+            "MSFT": "Microsoft",
+        }
+        df = _build_contradictions_from_merge_map(merge_map)
+        assert len(df) == 3
+        assert set(df["relation_type"]) == {"same_as"}
+
+    def test_detection_method_is_llm_verified(self):
+        df = _build_contradictions_from_merge_map({"A": "B"})
+        assert df.iloc[0]["detection_method"] == "llm_verified"
+
+    def test_confidence_is_high(self):
+        df = _build_contradictions_from_merge_map({"A": "B"})
+        assert df.iloc[0]["confidence"] >= 0.8
+
+    def test_all_rows_have_unique_ids(self):
+        merge_map = {"A": "X", "B": "X", "C": "Y"}
+        df = _build_contradictions_from_merge_map(merge_map)
+        assert df["id"].nunique() == len(df)
+
+    def test_required_columns_present(self):
+        df = _build_contradictions_from_merge_map({"A": "B"})
+        required = {
+            "id", "human_readable_id", "relation_type",
+            "subject_a_type", "subject_a_id",
+            "subject_b_type", "subject_b_id",
+            "description", "confidence", "detection_method",
+        }
+        assert required.issubset(set(df.columns))
