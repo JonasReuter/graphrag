@@ -46,6 +46,17 @@ class ExtractClaimsConfig(BaseModel):
         description="The maximum number of entity gleanings to use.",
         default=graphrag_config_defaults.extract_claims.max_gleanings,
     )
+    entity_candidates_k: int = Field(
+        description=(
+            "Number of entity candidates to retrieve per text chunk via embedding search "
+            "and inject into the claim extraction prompt as explicit entity names. "
+            "When > 0 and the entity embedding index is available, the LLM receives "
+            "the top-k most similar entity titles instead of generic entity types, "
+            "producing subject_ids that match canonical entity names directly. "
+            "0 disables pre-search (uses entity_types fallback)."
+        ),
+        default=graphrag_config_defaults.extract_claims.entity_candidates_k,
+    )
 
     def resolved_prompts(self) -> ClaimExtractionPrompts:
         """Get the resolved claim extraction prompts."""
