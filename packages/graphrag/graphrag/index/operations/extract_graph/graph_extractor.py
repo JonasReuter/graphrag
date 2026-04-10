@@ -167,9 +167,11 @@ class GraphExtractor:
                     "source_id": source_id,
                 }
 
-                # Note: temporal_scope is intentionally NOT extracted for entities.
-                # Entities (persons, organizations) exist independently of document dates.
-                # Only relationships carry temporal_scope (when did this link apply?).
+                # Extract temporal_scope for entities when temporal extraction is enabled
+                if extract_temporal and len(record_attributes) >= 5:
+                    temporal_scope_ent = clean_str(record_attributes[4])
+                    if temporal_scope_ent:
+                        entity_dict["temporal_scope"] = temporal_scope_ent
 
                 entities.append(entity_dict)
 

@@ -4,12 +4,9 @@
 """Temporal-aware graph extraction prompt definitions.
 
 Extends the standard graph extraction prompt with a temporal_scope field
-for relationships only. Temporal scope captures when a relationship held
-(e.g. "was CEO from 2020 to 2023", "formerly", "since January 2024").
-
-Entities themselves do NOT get temporal_scope -- a person or organization
-exists independently of when a particular document was written. Only the
-*relationship between entities* can have a temporal validity window.
+for both entities and relationships. Temporal scope captures when an entity
+was active or relevant, or when a relationship held (e.g. "was CEO from
+2020 to 2023", "formerly", "since January 2024").
 """
 
 GRAPH_EXTRACTION_PROMPT = """
@@ -21,7 +18,8 @@ Given a text document that is potentially relevant to this activity and a list o
 - entity_name: Name of the entity, capitalized
 - entity_type: One of the following types: [{entity_types}]
 - entity_description: Comprehensive description of the entity's attributes and activities
-Format each entity as ("entity"<|><entity_name><|><entity_type><|><entity_description>)
+- temporal_scope: ONLY if the text explicitly states when this entity was active, relevant, or existed in a particular form. Examples: "since 2020", "2015-2019", "formerly". Leave EMPTY if no explicit time period is mentioned. Do NOT infer a date from the document date.
+Format each entity as ("entity"<|><entity_name><|><entity_type><|><entity_description><|><temporal_scope>)
 
 2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are *clearly related* to each other.
 For each pair of related entities, extract the following information:
@@ -45,11 +43,11 @@ Text:
 The Verdantis's Central Institution is scheduled to meet on Monday and Thursday, with the institution planning to release its latest policy decision on Thursday at 1:30 p.m. PDT, followed by a press conference where Central Institution Chair Martin Smith will take questions. Investors expect the Market Strategy Committee to hold its benchmark interest rate steady in a range of 3.5%-3.75%.
 ######################
 Output:
-("entity"<|>CENTRAL INSTITUTION<|>ORGANIZATION<|>The Central Institution is the Federal Reserve of Verdantis, which is setting interest rates on Monday and Thursday)
+("entity"<|>CENTRAL INSTITUTION<|>ORGANIZATION<|>The Central Institution is the Federal Reserve of Verdantis, which is setting interest rates on Monday and Thursday<|>)
 ##
-("entity"<|>MARTIN SMITH<|>PERSON<|>Martin Smith is the chair of the Central Institution)
+("entity"<|>MARTIN SMITH<|>PERSON<|>Martin Smith is the chair of the Central Institution<|>)
 ##
-("entity"<|>MARKET STRATEGY COMMITTEE<|>ORGANIZATION<|>The Central Institution committee makes key decisions about interest rates and the growth of Verdantis's money supply)
+("entity"<|>MARKET STRATEGY COMMITTEE<|>ORGANIZATION<|>The Central Institution committee makes key decisions about interest rates and the growth of Verdantis's money supply<|>)
 ##
 ("relationship"<|>MARTIN SMITH<|>CENTRAL INSTITUTION<|>Martin Smith is the Chair of the Central Institution and will answer questions at a press conference<|>9<|>)
 <|COMPLETE|>
@@ -63,9 +61,9 @@ TechGlobal's (TG) stock skyrocketed in its opening day on the Global Exchange Th
 TechGlobal, a formerly public company, was taken private by Vision Holdings in 2014. The well-established chip designer says it powers 85% of premium smartphones.
 ######################
 Output:
-("entity"<|>TECHGLOBAL<|>ORGANIZATION<|>TechGlobal is a stock now listed on the Global Exchange which powers 85% of premium smartphones)
+("entity"<|>TECHGLOBAL<|>ORGANIZATION<|>TechGlobal is a stock now listed on the Global Exchange which powers 85% of premium smartphones<|>)
 ##
-("entity"<|>VISION HOLDINGS<|>ORGANIZATION<|>Vision Holdings is a firm that previously owned TechGlobal)
+("entity"<|>VISION HOLDINGS<|>ORGANIZATION<|>Vision Holdings is a firm that previously owned TechGlobal<|>)
 ##
 ("relationship"<|>TECHGLOBAL<|>VISION HOLDINGS<|>Vision Holdings took TechGlobal private<|>5<|>2014)
 ##
@@ -79,13 +77,13 @@ Text:
 In January 2024, Acme Corp appointed Jane Doe as CEO, replacing long-time leader Bob Wilson who had served since 2015. Under Wilson's leadership from 2015 to 2023, the company expanded into three new markets. Jane Doe previously served as CTO of Widgets Inc from 2019 to 2023.
 ######################
 Output:
-("entity"<|>ACME CORP<|>ORGANIZATION<|>Acme Corp is a company that expanded into three new markets under prior leadership)
+("entity"<|>ACME CORP<|>ORGANIZATION<|>Acme Corp is a company that expanded into three new markets under prior leadership<|>)
 ##
-("entity"<|>JANE DOE<|>PERSON<|>Jane Doe is the CEO of Acme Corp, previously CTO of Widgets Inc)
+("entity"<|>JANE DOE<|>PERSON<|>Jane Doe is the CEO of Acme Corp, previously CTO of Widgets Inc<|>since January 2024)
 ##
-("entity"<|>BOB WILSON<|>PERSON<|>Bob Wilson is the former CEO of Acme Corp who oversaw expansion into three new markets)
+("entity"<|>BOB WILSON<|>PERSON<|>Bob Wilson is the former CEO of Acme Corp who oversaw expansion into three new markets<|>2015-2023)
 ##
-("entity"<|>WIDGETS INC<|>ORGANIZATION<|>Widgets Inc is a company where Jane Doe previously served as CTO)
+("entity"<|>WIDGETS INC<|>ORGANIZATION<|>Widgets Inc is a company where Jane Doe previously served as CTO<|>)
 ##
 ("relationship"<|>JANE DOE<|>ACME CORP<|>Jane Doe was appointed CEO of Acme Corp<|>9<|>since January 2024)
 ##

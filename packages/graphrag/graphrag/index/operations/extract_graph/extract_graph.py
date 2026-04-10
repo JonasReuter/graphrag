@@ -89,10 +89,9 @@ async def extract_graph(
     relationships = filter_orphan_relationships(relationships, entities)
     evidence = _collect_evidence(evidence_dfs)
 
-    # Resolve temporal_scope -> valid_from/valid_until for relationships only.
-    # Entities (persons, organizations) do NOT get valid_from/valid_until from
-    # the extraction prompt -- their existence is not time-bounded by document dates.
+    # Resolve temporal_scope -> valid_from/valid_until for entities and relationships.
     if extract_temporal:
+        entities = _resolve_temporal_scopes(entities)
         relationships = _resolve_temporal_scopes(relationships)
 
     return (entities, relationships, evidence)
@@ -161,16 +160,34 @@ def _merge_entities(
 ) -> pd.DataFrame:
     all_entities = pd.concat(entity_dfs, ignore_index=True)
 
+    has_temporal = "temporal_scope" in all_entities.columns
+    if has_temporal:
+        agg_spec: dict = {
+            "description": ("description", list),
+            "text_unit_ids": ("source_id", list),
+            "frequency": ("source_id", "count"),
+            "_temporal_scopes": ("temporal_scope", list),
+        }
+    else:
+        agg_spec = {
+            "description": ("description", list),
+            "text_unit_ids": ("source_id", list),
+            "frequency": ("source_id", "count"),
+        }
+
     merged = (
         all_entities
         .groupby(["title", "type"], sort=False)
-        .agg(
-            description=("description", list),
-            text_unit_ids=("source_id", list),
-            frequency=("source_id", "count"),
-        )
+        .agg(**agg_spec)
         .reset_index()
     )
+
+    # Pick the first non-empty temporal_scope across duplicates
+    if has_temporal:
+        merged["temporal_scope"] = merged["_temporal_scopes"].apply(
+            lambda scopes: next((s for s in scopes if s), None)
+        )
+        merged.drop(columns=["_temporal_scopes"], inplace=True)
 
     # Compute document-level temporal bounds (when was this entity first/last seen)
     observed_at_list = []

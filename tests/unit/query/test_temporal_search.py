@@ -17,10 +17,11 @@ from graphrag.query.structured_search.local_search.mixed_context import (
 )
 
 
-def _entity(observed_at=None, last_observed_at=None) -> Entity:
+def _entity(observed_at=None, last_observed_at=None, valid_from=None, valid_until=None) -> Entity:
     return Entity(
         id="e1", short_id=None, title="TEST",
         observed_at=observed_at, last_observed_at=last_observed_at,
+        valid_from=valid_from, valid_until=valid_until,
     )
 
 
@@ -77,6 +78,19 @@ class TestEntityInTimeWindow:
     def test_only_last_observed_at_before_window(self):
         e = _entity(last_observed_at="2022-12-31")
         assert _entity_in_time_window(e, "2024-01-01", "2024-12-31") is False
+
+    def test_falls_back_to_valid_from_when_no_observed_at(self):
+        e = _entity(valid_from="2024-03-01", valid_until="2024-09-01")
+        assert _entity_in_time_window(e, "2024-01-01", "2024-12-31") is True
+
+    def test_valid_from_before_window(self):
+        e = _entity(valid_from="2022-01-01", valid_until="2022-12-31")
+        assert _entity_in_time_window(e, "2024-01-01", "2024-12-31") is False
+
+    def test_observed_at_takes_precedence_over_valid_from(self):
+        # observed_at says 2024, valid_from says 2022 — observed_at should be used
+        e = _entity(observed_at="2024-03-01", valid_from="2022-01-01")
+        assert _entity_in_time_window(e, "2024-01-01", "2024-12-31") is True
 
 
 class TestRelationshipInTimeWindow:

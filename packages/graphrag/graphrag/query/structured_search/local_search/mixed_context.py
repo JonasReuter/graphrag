@@ -616,16 +616,17 @@ def _entity_in_time_window(
 ) -> bool:
     """Return True if the entity was observed at any point within the window.
 
-    Uses ``observed_at`` (first seen) and ``last_observed_at`` (last seen).
-    If both are None the entity passes (legacy / no temporal data).
+    Prefers ``observed_at``/``last_observed_at`` (document-level timestamps).
+    Falls back to ``valid_from``/``valid_until`` (LLM-extracted validity).
+    Entities without any temporal data always pass.
     """
-    obs = entity.observed_at
-    last = entity.last_observed_at
+    # Prefer document-level timestamps; fall back to LLM-extracted validity
+    obs = entity.observed_at or entity.valid_from
+    last = entity.last_observed_at or entity.valid_until
     # Entity with no temporal data: always include
     if obs is None and last is None:
         return True
     # Entity passes if *any* of its observation window overlaps with [from_date, until_date]
-    # i.e. last_observed >= from_date  AND  observed_at <= until_date
     if from_date and last is not None and last < from_date:
         return False
     if until_date and obs is not None and obs > until_date:
