@@ -19,10 +19,6 @@ _MONTH_MAP = {
     "jan": "01", "feb": "02", "mar": "03", "apr": "04",
     "jun": "06", "jul": "07", "aug": "08", "sep": "09",
     "oct": "10", "nov": "11", "dec": "12",
-    # German month names
-    "januar": "01", "februar": "02", "maerz": "03", "märz": "03",
-    "mai": "05", "juni": "06", "juli": "07",
-    "september": "09", "oktober": "10", "dezember": "12",
 }
 
 
@@ -58,36 +54,36 @@ def resolve_temporal_scope(
         return f"{m.group(1)}-01-01", f"{m.group(2)}-12-31", None
 
     # Try year-range with "present"/"now": "2020-present", "2020 to present"
-    m = re.match(r"(\d{4})\s*[-–—to]+\s*(?:present|now|current|heute)", lower)
+    m = re.match(r"(\d{4})\s*[-–—to]+\s*(?:present|now|current)", lower)
     if m:
         return f"{m.group(1)}-01-01", None, None
 
     # Try "since <Month> <Year>": "since January 2024"
-    m = re.match(r"(?:since|ab|seit)\s+(\w+)\s+(\d{4})", lower)
+    m = re.match(r"(?:since)\s+(\w+)\s+(\d{4})", lower)
     if m:
         month = _MONTH_MAP.get(m.group(1).lower())
         if month:
             return f"{m.group(2)}-{month}-01", None, None
 
     # Try "since <Year>": "since 2024"
-    m = re.match(r"(?:since|ab|seit)\s+(\d{4})", lower)
+    m = re.match(r"(?:since)\s+(\d{4})", lower)
     if m:
         return f"{m.group(1)}-01-01", None, None
 
     # Try "until <Month> <Year>": "until March 2025"
-    m = re.match(r"(?:until|bis|till)\s+(\w+)\s+(\d{4})", lower)
+    m = re.match(r"(?:until|till)\s+(\w+)\s+(\d{4})", lower)
     if m:
         month = _MONTH_MAP.get(m.group(1).lower())
         if month:
             return None, f"{m.group(2)}-{month}-01", None
 
     # Try "until <Year>": "until 2025"
-    m = re.match(r"(?:until|bis|till)\s+(\d{4})", lower)
+    m = re.match(r"(?:until|till)\s+(\d{4})", lower)
     if m:
         return None, f"{m.group(1)}-12-31", None
 
     # Try "as of <Month> <Year>": "as of Q3 2024"
-    m = re.match(r"(?:as of|stand)\s+(\w+)\s+(\d{4})", lower)
+    m = re.match(r"(?:as of)\s+(\w+)\s+(\d{4})", lower)
     if m:
         month = _MONTH_MAP.get(m.group(1).lower())
         if month:
@@ -107,7 +103,7 @@ def resolve_temporal_scope(
                 last_day = "31"
             return f"{year}-{start_month}-01", f"{year}-{end_month}-{last_day}", None
 
-    # Try "<Month> <Year>": "January 2024", "März 2025"
+    # Try "<Month> <Year>": "January 2024", "March 2025"
     m = re.match(r"(\w+)\s+(\d{4})", lower)
     if m:
         month = _MONTH_MAP.get(m.group(1).lower())

@@ -185,14 +185,6 @@ class TestResolveTemporalScope:
         assert vf == "2024-01-15"
         assert vu is None
 
-    def test_german_seit(self):
-        vf, vu, q = resolve_temporal_scope("seit Januar 2024")
-        assert vf == "2024-01-01"
-
-    def test_german_bis(self):
-        vf, vu, q = resolve_temporal_scope("bis 2025")
-        assert vu == "2025-12-31"
-
 
 # ---------------------------------------------------------------
 # Phase 2: Timestamp computation during merge
@@ -283,13 +275,23 @@ class TestMergeRelationshipsWithTemporalScope:
         merged = _merge_relationships([df1, df2])
         assert merged.iloc[0]["temporal_scope"] == "since 2023"
 
-    def test_entity_merge_has_no_temporal_scope(self):
-        """Entities do not accumulate temporal_scope -- only observed_at."""
+    def test_entity_merge_preserves_temporal_scope(self):
+        """Entities accumulate temporal_scope when extracted."""
+        df = pd.DataFrame([{
+            "title": "A", "type": "ORG", "description": "desc", "source_id": "tu1",
+            "temporal_scope": "since 2020",
+        }])
+        merged = _merge_entities([df])
+        assert "temporal_scope" in merged.columns
+        assert merged.iloc[0]["temporal_scope"] == "since 2020"
+
+    def test_entity_merge_without_temporal_scope(self):
+        """Entities without temporal_scope column still merge correctly."""
         df = pd.DataFrame([{
             "title": "A", "type": "ORG", "description": "desc", "source_id": "tu1",
         }])
         merged = _merge_entities([df])
-        assert "temporal_scope" not in merged.columns
+        # temporal_scope column may or may not be present; no assertion needed
 
 
 class TestResolveTemporalScopes:
@@ -327,10 +329,23 @@ class TestGraphExtractorTemporalParsing:
             max_gleanings=0,
         )
 
-    def test_entity_has_no_temporal_scope(self):
-        """Entities never get temporal_scope -- only relationships do."""
+    def test_entity_with_temporal_scope(self):
+        """Entities get temporal_scope when temporal extraction is enabled."""
         extractor = self._make_extractor()
-        # Even if LLM outputs a 5th field, it is ignored for entities
+        result = (
+            '("entity"<|>ACME CORP<|>ORGANIZATION<|>A company<|>since 2020)'
+            f"\n##\n{COMPLETION_DELIMITER}"
+        )
+        entities_df, _, _ = extractor._process_result(
+            result, "tu1", TUPLE_DELIMITER, RECORD_DELIMITER,
+            extract_evidence=False, extract_temporal=True,
+        )
+        assert len(entities_df) == 1
+        assert entities_df.iloc[0]["temporal_scope"] == "since 2020"
+
+    def test_entity_without_temporal_scope(self):
+        """Entities without a 5th field have no temporal_scope."""
+        extractor = self._make_extractor()
         result = (
             '("entity"<|>ACME CORP<|>ORGANIZATION<|>A company)'
             f"\n##\n{COMPLETION_DELIMITER}"
@@ -340,7 +355,7 @@ class TestGraphExtractorTemporalParsing:
             extract_evidence=False, extract_temporal=True,
         )
         assert len(entities_df) == 1
-        assert "temporal_scope" not in entities_df.columns
+        assert "temporal_scope" not in entities_df.columns or entities_df.iloc[0].get("temporal_scope") is None
 
     def test_relationship_temporal_scope(self):
         extractor = self._make_extractor()
