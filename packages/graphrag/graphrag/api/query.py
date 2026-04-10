@@ -675,12 +675,18 @@ def drift_graph_search_streaming(
         embedding_name=entity_description_embedding,
     )
 
+    full_content_embedding_store = get_embedding_store(
+        config=config.vector_store,
+        embedding_name=community_full_content_embedding,
+    )
+
     local_prompt = load_search_prompt(config.drift_search.prompt)
     reduce_prompt = load_search_prompt(config.drift_search.reduce_prompt)
 
     search_engine = get_drift_graph_search_engine(
         config=config,
         description_embedding_store=description_embedding_store,
+        full_content_embedding_store=full_content_embedding_store,
         response_type=response_type,
         local_system_prompt=local_prompt,
         reduce_system_prompt=reduce_prompt,
