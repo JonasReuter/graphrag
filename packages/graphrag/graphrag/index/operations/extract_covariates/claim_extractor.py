@@ -5,6 +5,7 @@
 
 import logging
 import traceback
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -24,10 +25,12 @@ if TYPE_CHECKING:
     from graphrag_llm.types import LLMCompletionResponse
 
 def _normalize(s: str | None) -> str:
-    """Normalize an entity name for case- and ß-insensitive lookup."""
+    """Normalize an entity name for case-insensitive Unicode-safe lookup."""
     if not s:
         return ""
-    return s.upper().replace("ß", "SS").strip()
+    folded = unicodedata.normalize("NFKD", s.casefold())
+    ascii_safe = folded.encode("ascii", "ignore").decode("ascii")
+    return ascii_safe.strip().upper()
 
 
 INPUT_TEXT_KEY = "input_text"

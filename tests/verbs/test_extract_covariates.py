@@ -23,11 +23,20 @@ from .util import (
 
 
 def test_normalize():
-    """_normalize uppercases and replaces ß with SS."""
+    """_normalize handles Unicode diacritics across languages."""
+    # German ß → SS (via casefold)
     assert _normalize("Customer A") == "CUSTOMER A"
     assert _normalize("ME-Meßsysteme GmbH") == "ME-MESSSYSTEME GMBH"
     assert _normalize("ME-MESSSYSTEME GMBH") == "ME-MESSSYSTEME GMBH"
+    # German umlauts
+    assert _normalize("Zürich Köln") == "ZURICH KOLN"
+    # French accents
+    assert _normalize("naïve café") == "NAIVE CAFE"
+    # Spanish tilde
+    assert _normalize("Ñoño López") == "NONO LOPEZ"
+    # Whitespace handling
     assert _normalize("  spaces  ") == "SPACES"
+    # Edge cases
     assert _normalize(None) == ""
     assert _normalize("") == ""
 

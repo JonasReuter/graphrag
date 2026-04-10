@@ -20,6 +20,9 @@ from graphrag.config.enums import AsyncType
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 from graphrag.data_model.data_reader import DataReader
 from graphrag.data_model.schemas import COVARIATES_FINAL_COLUMNS
+from graphrag.index.operations.extract_covariates.claim_extractor import (
+    _normalize,
+)
 from graphrag.index.operations.extract_covariates.extract_covariates import (
     extract_covariates as extractor,
 )
@@ -47,7 +50,7 @@ async def run_workflow(
         text_units = await reader.text_units()
 
         # Build entity lookup map from resolved entities so _clean_claim can
-        # normalize LLM-produced name variants (e.g. ß vs SS) back to canonical titles.
+        # normalize LLM-produced name variants back to canonical titles.
         # known_titles is also used to filter stale entries from the embedding index
         # (pre-resolution entity titles that no longer exist after entity_resolution merges).
         resolved_entities_map: dict[str, str] = {}
@@ -60,8 +63,8 @@ async def run_workflow(
                     known_titles.add(canonical)
                     # exact match
                     resolved_entities_map[canonical] = canonical
-                    # ß-normalized variant → canonical
-                    normalized = canonical.upper().replace("ß", "SS").strip()
+                    # Unicode-normalized variant → canonical
+                    normalized = _normalize(canonical)
                     resolved_entities_map[normalized] = canonical
         except Exception:  # noqa: BLE001
             logger.debug("No entities table found; skipping entity name normalization for claims.")
