@@ -34,7 +34,7 @@ def resolve_temporal_scope(
         - valid_until: ISO-8601 date or None
         - unresolved_qualifier: The original string if it could not be resolved, else None
     """
-    if not scope or not scope.strip():
+    if not scope or not isinstance(scope, str) or not scope.strip():
         return None, None, None
 
     scope = scope.strip()
