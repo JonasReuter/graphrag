@@ -9,6 +9,7 @@ Backwards compatibility is not guaranteed at this time.
 
 from graphrag.api.index import build_index
 from graphrag.api.prompt_tune import generate_indexing_prompts
+from graphrag.api.smart_search import SmartSearchResult, smart_search
 from graphrag.api.query import (
     basic_search,
     basic_search_streaming,
@@ -49,6 +50,8 @@ __all__ = [  # noqa: RUF022
     "graph_global_search_streaming",
     "covariate_report",
     "timeline",
+    "smart_search",
+    "SmartSearchResult",
     # prompt tuning API
     "DocSelectionType",
     "generate_indexing_prompts",

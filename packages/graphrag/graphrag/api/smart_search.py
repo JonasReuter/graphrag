@@ -50,17 +50,22 @@ Categories — read the distinctions carefully:
   "What is the relationship between company A and company B?",
   "What spec does sensor Z have?"
 
-- enumeration: asking to LIST or FIND ALL members of a category — the answer is
-  a set of items. Key signals: "which X", "what subsidiaries/products/customers",
+- enumeration: asking to LIST or FIND ALL members of a structurally defined
+  category — the answer is a discrete set of items. The category boundary is
+  clear and structural (geography, type, organizational unit).
+  Key signals: "which X", "what subsidiaries/products/customers",
   "list all", plural subjects without a named entity.
   Examples: "Which customers are from outside the country?",
-  "What subsidiaries does company X have?",
-  "Which products are end-of-life?"
+  "What subsidiaries does company X have?"
 
-- synthesis: requires COMBINING information across many sources to draw conclusions,
-  describe patterns, identify roles, compare options, or give a broad overview.
+- synthesis: requires COMBINING information across many sources to draw
+  conclusions, describe patterns, identify roles, compare options, or give a
+  broad overview. Also applies when "which X" asks about a qualitative state,
+  condition, lifecycle stage, or transition — because the answer requires
+  analysing the dataset rather than retrieving a structural membership list.
   Key signals: "what are the main", "what domains", "how does X compare",
-  "describe the role of", "what responsibilities", "what patterns".
+  "describe the role of", "what responsibilities", "what patterns",
+  "which X are/have [state or condition]".
   Examples: "What are the main application domains?",
   "Who are the sales agents and what are their responsibilities?",
   "How do product variants compare?"
@@ -69,9 +74,10 @@ Categories — read the distinctions carefully:
   Examples: "What happened in February 2025?", "Events from 2024 to 2025."
 
 Decision rule:
-  ONE named thing → entity_fact
-  LIST of unnamed things → enumeration
-  Patterns / roles / overview / comparison across many things → synthesis
+  ONE named thing                                    → entity_fact
+  LIST with a clear structural category boundary     → enumeration
+  LIST requiring state/condition/transition analysis → synthesis
+  Patterns / roles / overview / comparison           → synthesis
 
 Also extract any date hints (ISO-8601) if temporal.
 Return ONLY valid JSON (no prose):
