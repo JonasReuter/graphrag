@@ -26,10 +26,10 @@ from .util import (
 
 def test_normalize():
     """_normalize handles Unicode diacritics across languages."""
-    # German ß → SS (via casefold)
-    assert _normalize("Customer A") == "CUSTOMER A"
-    assert _normalize("ME-Meßsysteme GmbH") == "ME-MESSSYSTEME GMBH"
-    assert _normalize("ME-MESSSYSTEME GMBH") == "ME-MESSSYSTEME GMBH"
+    # German ß → SS (via casefold) — fictional names with ß
+    assert _normalize("Max Weiß") == "MAX WEISS"
+    assert _normalize("Meßgerät GmbH") == "MESSGERAT GMBH"
+    assert _normalize("MESSGERAT GMBH") == "MESSGERAT GMBH"
     # German umlauts
     assert _normalize("Zürich Köln") == "ZURICH KOLN"
     # French accents
@@ -46,23 +46,23 @@ def test_normalize():
 def test_clean_claim_normalizes_ss_variant():
     """_clean_claim resolves ß-variant names to their canonical entity titles."""
     resolved = {
-        "CUSTOMER A": "CUSTOMER A",       # canonical
-        "ME-MESSSYSTEME GMBH": "ME-MESSSYSTEME GMBH",  # canonical
+        "MAX WEISS": "MAX WEISS",           # canonical person
+        "MESSGERAT GMBH": "MESSGERAT GMBH", # canonical org
     }
     claim = {
-        "subject_id": "CUSTOMER A",           # ß-variant produced by LLM
-        "object_id": "ME-MEßSYSTEME GMBH",     # ß-variant produced by LLM
+        "subject_id": "MAX WEIß",           # ß-variant produced by LLM
+        "object_id": "MEßGERÄT GMBH",       # ß-variant produced by LLM
     }
     # ClaimExtractor needs a model — use None and call _clean_claim directly
     extractor = ClaimExtractor.__new__(ClaimExtractor)
     result = extractor._clean_claim(claim, "d0", resolved)  # noqa: SLF001
-    assert result["subject_id"] == "CUSTOMER A"
-    assert result["object_id"] == "ME-MESSSYSTEME GMBH"
+    assert result["subject_id"] == "MAX WEISS"
+    assert result["object_id"] == "MESSGERAT GMBH"
 
 
 def test_clean_claim_unknown_entity_unchanged():
     """_clean_claim leaves names unchanged when not in the resolved map."""
-    resolved = {"CUSTOMER A": "CUSTOMER A"}
+    resolved = {"MAX WEISS": "MAX WEISS"}
     claim = {"subject_id": "UNKNOWN ENTITY", "object_id": "NONE"}
     extractor = ClaimExtractor.__new__(ClaimExtractor)
     result = extractor._clean_claim(claim, "d0", resolved)  # noqa: SLF001
