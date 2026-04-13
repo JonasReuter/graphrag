@@ -852,13 +852,14 @@ def timeline(
     from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
 
     graph_cfg = config.graph_store
+    embedding_cfg = config.get_embedding_model_config(config.embed_text.embedding_model_id)
     graph_store = ArangoDBGraphStore(
         url=graph_cfg.url,
         username=graph_cfg.username,
         password=graph_cfg.password,
         db_name=graph_cfg.db_name,
         graph_name=graph_cfg.graph_name,
-        vector_size=graph_cfg.vector_size,
+        vector_size=embedding_cfg.vector_size,
     )
     graph_store.connect()
     return graph_store.entity_facts_timeline(
@@ -896,13 +897,14 @@ def covariate_report(
     from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
 
     graph_cfg = config.graph_store
+    embedding_cfg = config.get_embedding_model_config(config.embed_text.embedding_model_id)
     graph_store = ArangoDBGraphStore(
         url=graph_cfg.url,
         username=graph_cfg.username,
         password=graph_cfg.password,
         db_name=graph_cfg.db_name,
         graph_name=graph_cfg.graph_name,
-        vector_size=graph_cfg.vector_size,
+        vector_size=embedding_cfg.vector_size,
     )
     graph_store.connect()
     return graph_store.get_all_covariates(

@@ -45,10 +45,6 @@ class GraphStoreConfig(BaseModel):
             "Only effective when vector_store.type is also 'arangodb'."
         ),
     )
-    vector_size: int = Field(
-        default=3072,
-        description="Dimension of entity embedding vectors (must match embedding model output).",
-    )
     traversal_depth: int = Field(
         default=2,
         description="Default k-hop depth for graph traversal retrieval.",

@@ -50,6 +50,11 @@ async def run_workflow(
         )
         store_vectors = False
 
+    embedding_model_cfg = config.get_embedding_model_config(
+        config.embed_text.embedding_model_id
+    )
+    vector_size = embedding_model_cfg.vector_size
+
     graph_store = ArangoDBGraphStore(
         url=graph_cfg.url,
         username=graph_cfg.username,
@@ -57,7 +62,7 @@ async def run_workflow(
         db_name=graph_cfg.db_name,
         graph_name=graph_cfg.graph_name,
         batch_size=graph_cfg.batch_size,
-        vector_size=graph_cfg.vector_size,
+        vector_size=vector_size,
     )
     graph_store.connect()
 

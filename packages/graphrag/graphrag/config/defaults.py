@@ -366,7 +366,6 @@ class GraphStoreDefaults:
     graph_name: str = "knowledge_graph"
     batch_size: int = 500
     store_vectors: bool = True
-    vector_size: int = 3072
     traversal_depth: int = 2
     top_k_seeds: int = 10
 

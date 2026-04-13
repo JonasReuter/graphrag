@@ -67,9 +67,7 @@ async def run_workflow(
         index_name=_ENTITY_RESOLUTION_INDEX,
         id_field="id",
         vector_field="vector",
-        vector_size=embedding_model_config.vector_size
-        if hasattr(embedding_model_config, "vector_size")
-        else 1536,
+        vector_size=embedding_model_config.vector_size or config.vector_store.vector_size,
         fields={"title": "str"},
     )
     vector_store = create_vector_store(vs_config, index_schema)

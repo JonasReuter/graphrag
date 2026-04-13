@@ -157,7 +157,7 @@ def get_arangodb_local_search_engine(
         password=graph_cfg.password,
         db_name=graph_cfg.db_name,
         graph_name=graph_cfg.graph_name,
-        vector_size=graph_cfg.vector_size,
+        vector_size=embedding_settings.vector_size,
     )
     graph_store.connect()
 
@@ -382,7 +382,7 @@ def get_graph_drift_search_engine(
         password=graph_cfg.password,
         db_name=graph_cfg.db_name,
         graph_name=graph_cfg.graph_name,
-        vector_size=graph_cfg.vector_size,
+        vector_size=embedding_model_settings.vector_size,
     )
     graph_store.connect()
 
@@ -472,13 +472,14 @@ def get_graph_global_search_engine(
     model_params = model_settings.call_args
     tokenizer = model.tokenizer
 
+    embedding_cfg = config.get_embedding_model_config(config.embed_text.embedding_model_id)
     graph_store = ArangoDBGraphStore(
         url=graph_cfg.url,
         username=graph_cfg.username,
         password=graph_cfg.password,
         db_name=graph_cfg.db_name,
         graph_name=graph_cfg.graph_name,
-        vector_size=graph_cfg.vector_size,
+        vector_size=embedding_cfg.vector_size,
     )
     graph_store.connect()
 
