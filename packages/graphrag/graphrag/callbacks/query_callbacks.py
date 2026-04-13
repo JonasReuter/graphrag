@@ -31,3 +31,6 @@ class QueryCallbacks(BaseLLMCallback):
 
     def on_llm_new_token(self, token) -> None:
         """Handle when a new token is generated."""
+
+    def on_timing(self, phase_timings: dict[str, float]) -> None:
+        """Handle per-phase timing breakdown (milliseconds per phase name)."""

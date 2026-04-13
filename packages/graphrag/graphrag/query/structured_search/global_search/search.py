@@ -109,14 +109,20 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         conversation_history: ConversationHistory | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream the global search response."""
+        _phase_timings: dict[str, float] = {}
+
+        _t0 = time.perf_counter()
         context_result = await self.context_builder.build_context(
             query=query,
             conversation_history=conversation_history,
             **self.context_builder_params,
         )
+        _phase_timings["context_build"] = round((time.perf_counter() - _t0) * 1000)
+
         for callback in self.callbacks:
             callback.on_map_response_start(context_result.context_chunks)  # type: ignore
 
+        _t0 = time.perf_counter()
         map_responses = await asyncio.gather(*[
             self._map_response_single_batch(
                 context_data=data,
@@ -126,11 +132,14 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
             )
             for data in context_result.context_chunks
         ])
+        _phase_timings["map_llm"] = round((time.perf_counter() - _t0) * 1000)
+        _phase_timings["map_batches"] = len(context_result.context_chunks)
 
         for callback in self.callbacks:
             callback.on_map_response_end(map_responses)  # type: ignore
             callback.on_context(context_result.context_records)
 
+        _t0 = time.perf_counter()
         async for response in self._stream_reduce_response(
             map_responses=map_responses,  # type: ignore
             query=query,
@@ -138,6 +147,10 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
             model_parameters=self.reduce_llm_params,
         ):
             yield response
+        _phase_timings["reduce_llm"] = round((time.perf_counter() - _t0) * 1000)
+
+        for callback in self.callbacks:
+            callback.on_timing(_phase_timings)
 
     async def search(
         self,
@@ -159,13 +172,16 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         """
         # Step 1: Generate answers for each batch of community short summaries
         llm_calls, prompt_tokens, output_tokens = {}, {}, {}
+        _phase_timings: dict[str, float] = {}
 
         start_time = time.time()
+        _t0 = time.perf_counter()
         context_result = await self.context_builder.build_context(
             query=query,
             conversation_history=conversation_history,
             **self.context_builder_params,
         )
+        _phase_timings["context_build"] = round((time.perf_counter() - _t0) * 1000)
         llm_calls["build_context"] = context_result.llm_calls
         prompt_tokens["build_context"] = context_result.prompt_tokens
         output_tokens["build_context"] = context_result.output_tokens
@@ -187,6 +203,7 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         for callback in self.callbacks:
             callback.on_map_response_start(context_result.context_chunks)  # type: ignore
 
+        _t0 = time.perf_counter()
         map_responses = await asyncio.gather(*[
             self._map_response_single_batch(
                 context_data=data,
@@ -196,6 +213,8 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
             )
             for data in context_result.context_chunks
         ])
+        _phase_timings["map_llm"] = round((time.perf_counter() - _t0) * 1000)
+        _phase_timings["map_batches"] = len(context_result.context_chunks)
 
         for callback in self.callbacks:
             callback.on_map_response_end(map_responses)
@@ -206,14 +225,19 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
         output_tokens["map"] = sum(response.output_tokens for response in map_responses)
 
         # Step 2: Combine the intermediate answers from step 2 to generate the final answer
+        _t0 = time.perf_counter()
         reduce_response = await self._reduce_response(
             map_responses=map_responses,
             query=query,
             **self.reduce_llm_params,
         )
+        _phase_timings["reduce_llm"] = round((time.perf_counter() - _t0) * 1000)
         llm_calls["reduce"] = reduce_response.llm_calls
         prompt_tokens["reduce"] = reduce_response.prompt_tokens
         output_tokens["reduce"] = reduce_response.output_tokens
+
+        for callback in self.callbacks:
+            callback.on_timing(_phase_timings)
 
         return GlobalSearchResult(
             response=reduce_response.response,
@@ -229,6 +253,7 @@ class GlobalSearch(BaseSearch[GlobalContextBuilder]):
             llm_calls_categories=llm_calls,
             prompt_tokens_categories=prompt_tokens,
             output_tokens_categories=output_tokens,
+            phase_timings=_phase_timings,
         )
 
     async def _map_response_single_batch(

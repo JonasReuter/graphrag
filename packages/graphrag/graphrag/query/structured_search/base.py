@@ -42,6 +42,8 @@ class SearchResult:
     llm_calls_categories: dict[str, int] | None = None
     prompt_tokens_categories: dict[str, int] | None = None
     output_tokens_categories: dict[str, int] | None = None
+    # per-phase timing in milliseconds (e.g. embedding, ann_and_traversal, llm_generation)
+    phase_timings: dict[str, float] | None = None
 
 
 T = TypeVar(

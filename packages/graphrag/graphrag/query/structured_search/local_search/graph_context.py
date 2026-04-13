@@ -164,6 +164,10 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             msg = "text_unit_prop + community_prop must not exceed 1."
             raise ValueError(msg)
 
+        import time as _time
+        _t = _time.perf_counter
+        _phase: dict[str, float] = {}
+
         depth = traversal_depth if traversal_depth is not None else self.traversal_depth
         final_query = query
         if conversation_history:
@@ -177,6 +181,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             query=final_query,
             depth=depth,
             k=self.top_k_seeds,
+            _phase=_phase,
         )
 
         # Apply temporal filters when a time window is requested
@@ -230,25 +235,10 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
                 final_context_data = conv_context_data
                 max_context_tokens -= len(self.tokenizer.encode(conv_context))
 
-        # Community context
-        community_tokens = max(int(max_context_tokens * community_prop), 0)
-        community_context, community_context_data = self._build_community_context(
-            selected_entities=selected_entities,
-            max_context_tokens=community_tokens,
-            use_community_summary=use_community_summary,
-            column_delimiter=column_delimiter,
-            include_community_rank=include_community_rank,
-            min_community_rank=min_community_rank,
-            context_name=community_context_name,
-            query=query,
-        )
-        if community_context.strip():
-            final_context.append(community_context)
-            final_context_data = {**final_context_data, **community_context_data}
-
-        # Local (entity + relationship) context
+        # Local (entity + relationship) context — no I/O, built first synchronously
         local_prop = 1.0 - community_prop - text_unit_prop
         local_tokens = max(int(max_context_tokens * local_prop), 0)
+        _t0 = _t()
         local_context, local_context_data = self._build_local_context(
             selected_entities=selected_entities,
             relationships=relationships,
@@ -260,25 +250,59 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             relationship_ranking_attribute=relationship_ranking_attribute,
             column_delimiter=column_delimiter,
         )
+        _phase["local_context"] = round((_t() - _t0) * 1000)
+
+        # Community + text-unit context run in parallel — both may call the
+        # Cohere reranker (I/O-bound), so threading gives a free latency win.
+        import concurrent.futures as _cf
+        community_tokens = max(int(max_context_tokens * community_prop), 0)
+        text_unit_tokens = max(int(max_context_tokens * text_unit_prop), 0)
+        _phase_comm: dict[str, float] = {}
+        _phase_tu: dict[str, float] = {}
+
+        _t0 = _t()
+        with _cf.ThreadPoolExecutor(max_workers=2) as _pool:
+            _f_comm = _pool.submit(
+                self._build_community_context,
+                selected_entities=selected_entities,
+                max_context_tokens=community_tokens,
+                use_community_summary=use_community_summary,
+                column_delimiter=column_delimiter,
+                include_community_rank=include_community_rank,
+                min_community_rank=min_community_rank,
+                context_name=community_context_name,
+                query=query,
+                _phase=_phase_comm,
+            )
+            _f_tu = _pool.submit(
+                self._build_text_unit_context,
+                selected_entities=selected_entities,
+                relationships=relationships,
+                max_context_tokens=text_unit_tokens,
+                column_delimiter=column_delimiter,
+                query=query,
+                _phase=_phase_tu,
+            )
+            community_context, community_context_data = _f_comm.result()
+            text_unit_context, text_unit_context_data = _f_tu.result()
+        _phase["community_and_text_units"] = round((_t() - _t0) * 1000)
+        _phase.update(_phase_comm)
+        _phase.update(_phase_tu)
+
         if local_context.strip():
             final_context.append(local_context)
             final_context_data = {**final_context_data, **local_context_data}
-
-        # Text unit context — fetched from ArangoDB via entity_text_unit edges
-        text_unit_tokens = max(int(max_context_tokens * text_unit_prop), 0)
-        text_unit_context, text_unit_context_data = self._build_text_unit_context(
-            selected_entities=selected_entities,
-            relationships=relationships,
-            max_context_tokens=text_unit_tokens,
-            column_delimiter=column_delimiter,
-            query=query,
-        )
+        if community_context.strip():
+            final_context.append(community_context)
+            final_context_data = {**final_context_data, **community_context_data}
         if text_unit_context.strip():
             final_context.append(text_unit_context)
             final_context_data = {**final_context_data, **text_unit_context_data}
 
         # Covariate context — fetched from ArangoDB via entity_covariate edges
+        _t0 = _t()
         covariates = self._fetch_covariates_from_graph(selected_entities)
+        _phase["covariates"] = round((_t() - _t0) * 1000)
         if covariates:
             for cov_type, cov_list in covariates.items():
                 cov_context, cov_context_data = build_covariates_context(
@@ -295,6 +319,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         return ContextBuilderResult(
             context_chunks="\n\n".join(final_context),
             context_records=final_context_data,
+            phase_timings=_phase,
         )
 
     # ------------------------------------------------------------------
@@ -306,26 +331,38 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         query: str,
         depth: int,
         k: int,
+        _phase: dict[str, float] | None = None,
     ) -> tuple[list[Entity], list[Relationship]]:
         """Retrieve entities and relationships from ArangoDB."""
+        import time as _time
+        _t = _time.perf_counter
+
         if self.use_hybrid_search:
             # Combined vector + graph in one AQL query
             try:
+                _t0 = _t()
                 emb_response = self.text_embedder.embedding(input=[query])
                 raw = emb_response.first_embedding
                 query_embedding = raw.tolist() if hasattr(raw, "tolist") else list(raw)
-                return self.retriever.hybrid_retrieve(
+                if _phase is not None:
+                    _phase["embedding"] = round((_t() - _t0) * 1000)
+                _t0 = _t()
+                result = self.retriever.hybrid_retrieve(
                     query_vector=query_embedding,
                     depth=depth,
                     k=k,
                 )
+                if _phase is not None:
+                    _phase["ann_and_traversal"] = round((_t() - _t0) * 1000)
+                return result
             except Exception as exc:
                 logger.warning(
                     "Hybrid search failed: %s. Falling back to vector seed + traversal.",
                     exc,
                 )
 
-        # Fallback: seed from entity vector store, expand via graph traversal
+        # Fallback: separate embedding → vector seed → graph traversal
+        _t0 = _t()
         seed_entities = map_query_to_entities(
             query=query,
             text_embedding_vectorstore=self.entity_text_embeddings,
@@ -335,9 +372,15 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
             k=k,
             oversample_scaler=2,
         )
+        if _phase is not None:
+            _phase["ann_seed"] = round((_t() - _t0) * 1000)
         if not seed_entities:
             return [], []
-        return self.retriever.get_neighbors(seed_entities, depth=depth)
+        _t0 = _t()
+        result = self.retriever.get_neighbors(seed_entities, depth=depth)
+        if _phase is not None:
+            _phase["graph_traversal"] = round((_t() - _t0) * 1000)
+        return result
 
     def _build_community_context(
         self,
@@ -349,13 +392,18 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         min_community_rank: int = 0,
         context_name: str = "Reports",
         query: str = "",
+        _phase: dict[str, float] | None = None,
     ) -> tuple[str, dict[str, pd.DataFrame]]:
         """Retrieve and format community reports for selected entities."""
+        import time as _time
         if not selected_entities:
             return ("", {context_name.lower(): pd.DataFrame()})
 
         # Get reports from ArangoDB graph
+        _t0 = _time.perf_counter()
         reports = self.retriever.get_community_reports(selected_entities)
+        if _phase is not None:
+            _phase["reports_fetch"] = round((_time.perf_counter() - _t0) * 1000)
 
         # Fall back to pre-loaded reports if graph query returned nothing
         if not reports and self.community_reports_list:
@@ -379,7 +427,10 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
                 r.summary if use_community_summary else (r.full_content or r.summary or "")
                 for r in reports
             ]
+            _t0 = _time.perf_counter()
             reports = self.reranker.rerank(query=query, documents=docs, metadata=reports)
+            if _phase is not None:
+                _phase["reranker_reports"] = round((_time.perf_counter() - _t0) * 1000)
             was_reranked = True
             logger.debug("Reranked %d community candidates with Cohere", len(reports))
 
@@ -510,6 +561,7 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         column_delimiter: str = "|",
         context_name: str = "Sources",
         query: str = "",
+        _phase: dict[str, float] | None = None,
     ) -> tuple[str, dict[str, pd.DataFrame]]:
         """Format text units associated with selected entities.
 
@@ -559,11 +611,15 @@ class ArangoDBGraphContextBuilder(LocalContextBuilder):
         selected_text_units = [item[0] for item in unit_info_list]
 
         if self.reranker and query and selected_text_units:
+            import time as _time
+            _t0 = _time.perf_counter()
             selected_text_units = self.reranker.rerank(
                 query=query,
                 documents=[u.text for u in selected_text_units],
                 metadata=selected_text_units,
             )
+            if _phase is not None:
+                _phase["reranker_text_units"] = round((_time.perf_counter() - _t0) * 1000)
             logger.debug("Reranked %d text unit candidates with Cohere", len(selected_text_units))
 
         relationships_dict = {r.id: r for r in relationships if r.id}

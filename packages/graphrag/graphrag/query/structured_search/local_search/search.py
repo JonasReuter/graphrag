@@ -68,12 +68,14 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
         start_time = time.time()
         search_prompt = ""
         llm_calls, prompt_tokens, output_tokens = {}, {}, {}
+        _ctx_t0 = time.perf_counter()
         context_result = self.context_builder.build_context(
             query=query,
             conversation_history=conversation_history,
             **kwargs,
             **self.context_builder_params,
         )
+        _ctx_ms = round((time.perf_counter() - _ctx_t0) * 1000)
         llm_calls["build_context"] = context_result.llm_calls
         prompt_tokens["build_context"] = context_result.prompt_tokens
         output_tokens["build_context"] = context_result.output_tokens
@@ -113,6 +115,7 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
 
             full_response = ""
 
+            _llm_t0 = time.perf_counter()
             response: AsyncIterator[
                 LLMCompletionChunk
             ] = await self.model.completion_async(
@@ -126,13 +129,22 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
                 full_response += response_text
                 for callback in self.callbacks:
                     callback.on_llm_new_token(response_text)
+            _llm_ms = round((time.perf_counter() - _llm_t0) * 1000)
 
             llm_calls["response"] = 1
             prompt_tokens["response"] = len(self.tokenizer.encode(search_prompt))
             output_tokens["response"] = len(self.tokenizer.encode(full_response))
 
+            # Build phase timing: sub-phases from context builder + top-level phases
+            _phase_timings: dict[str, float] = {}
+            if context_result.phase_timings:
+                _phase_timings.update(context_result.phase_timings)
+            _phase_timings["context_build_total"] = _ctx_ms
+            _phase_timings["llm_generation"] = _llm_ms
+
             for callback in self.callbacks:
                 callback.on_context(context_result.context_records)
+                callback.on_timing(_phase_timings)
 
             return SearchResult(
                 response=full_response,
@@ -145,6 +157,7 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
                 llm_calls_categories=llm_calls,
                 prompt_tokens_categories=prompt_tokens,
                 output_tokens_categories=output_tokens,
+                phase_timings=_phase_timings,
             )
 
         except Exception:
@@ -173,12 +186,15 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
         """
         start_time = time.time()
 
+        _ctx_t0 = time.perf_counter()
         context_result = self.context_builder.build_context(
             query=query,
             conversation_history=conversation_history,
             **kwargs,
             **self.context_builder_params,
         )
+        _ctx_ms = round((time.perf_counter() - _ctx_t0) * 1000)
+
         logger.debug("GENERATE ANSWER: %s. QUERY: %s", start_time, query)
         search_prompt = self.system_prompt.format(
             context_data=context_result.context_chunks, response_type=self.response_type
@@ -193,6 +209,7 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
         for callback in self.callbacks:
             callback.on_context(context_result.context_records)
 
+        _llm_t0 = time.perf_counter()
         response: AsyncIterator[LLMCompletionChunk] = await self.model.completion_async(
             messages=messages_builder.build(),
             stream=True,
@@ -204,3 +221,12 @@ class LocalSearch(BaseSearch[LocalContextBuilder]):
             for callback in self.callbacks:
                 callback.on_llm_new_token(response_text)
             yield response_text
+
+        _llm_ms = round((time.perf_counter() - _llm_t0) * 1000)
+        _phase_timings: dict[str, float] = {}
+        if context_result.phase_timings:
+            _phase_timings.update(context_result.phase_timings)
+        _phase_timings["context_build_total"] = _ctx_ms
+        _phase_timings["llm_generation"] = _llm_ms
+        for callback in self.callbacks:
+            callback.on_timing(_phase_timings)

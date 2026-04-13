@@ -22,6 +22,8 @@ class ContextBuilderResult:
     llm_calls: int = 0
     prompt_tokens: int = 0
     output_tokens: int = 0
+    phase_timings: dict[str, float] | None = None
+    """Per-phase timing in milliseconds, e.g. {'embedding': 45, 'ann_seed': 120, ...}"""
 
 
 class GlobalContextBuilder(ABC):
