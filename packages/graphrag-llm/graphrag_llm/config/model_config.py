@@ -80,6 +80,11 @@ class ModelConfig(BaseModel):
         description="Specify and configure the metric services.",
     )
 
+    vector_size: int | None = Field(
+        default=None,
+        description="Output dimensionality of the embedding model. Required for vector store index creation.",
+    )
+
     mock_responses: list[str] | list[float] = Field(
         default_factory=list,
         description="List of mock responses for testing.",
