@@ -72,6 +72,16 @@ def create_table_provider(
                 )
 
                 register_table_provider(TableType.CSV, CSVTableProvider)
+            case TableType.ArangoDB:
+                try:
+                    from graphrag_storage.tables.arango_table_provider import (
+                        ArangoDBTableProvider,
+                    )
+                except ImportError as exc:
+                    msg = "ArangoDB table provider requires 'python-arango'. Install graphrag-storage[arangodb]."
+                    raise ImportError(msg) from exc
+
+                register_table_provider(TableType.ArangoDB, ArangoDBTableProvider)
             case _:
                 msg = f"TableProviderConfig.type '{table_type}' is not registered in the TableProviderFactory. Registered types: {', '.join(table_provider_factory.keys())}."
                 raise ValueError(msg)

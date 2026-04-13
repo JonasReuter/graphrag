@@ -66,10 +66,9 @@ def get_update_table_providers(
     delta_storage = timestamped_storage.child("delta")
     previous_storage = timestamped_storage.child("previous")
 
+    update_tp_config = config.update_table_provider or config.table_provider
     output_table_provider = create_table_provider(config.table_provider, output_storage)
-    previous_table_provider = create_table_provider(
-        config.table_provider, previous_storage
-    )
-    delta_table_provider = create_table_provider(config.table_provider, delta_storage)
+    previous_table_provider = create_table_provider(update_tp_config, previous_storage)
+    delta_table_provider = create_table_provider(update_tp_config, delta_storage)
 
     return output_table_provider, previous_table_provider, delta_table_provider

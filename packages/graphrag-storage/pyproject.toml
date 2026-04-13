@@ -39,6 +39,9 @@ dependencies = [
     "pydantic~=2.10",
 ]
 
+[project.optional-dependencies]
+arangodb = ["python-arango>=7.10,<9"]
+
 [project.urls]
 Source = "https://github.com/microsoft/graphrag"
 

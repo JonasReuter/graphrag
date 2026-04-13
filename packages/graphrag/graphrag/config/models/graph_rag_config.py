@@ -148,6 +148,16 @@ class GraphRagConfig(BaseModel):
     )
     """The table provider configuration. By default we read/write parquet to disk. You can register custom output table storage."""
 
+    update_table_provider: TableProviderConfig | None = Field(
+        description="Table provider for ephemeral delta/previous stores during incremental update runs. "
+        "Defaults to the same type as table_provider, but for database-backed providers (e.g. arangodb) "
+        "it is strongly recommended to set this to parquet so that update bookkeeping uses the local "
+        "file store rather than the same database collections as the main index.",
+        default=None,
+    )
+    """Optional separate table provider for update run delta/previous tables.
+    When None, falls back to table_provider. For ArangoDB setups, set this to parquet."""
+
     cache: CacheConfig = Field(
         description="The cache configuration.",
         default=CacheConfig(**asdict(graphrag_config_defaults.cache)),

@@ -59,14 +59,16 @@ async def run_pipeline(
         update_timestamp = time.strftime("%Y%m%d-%H%M%S")
         timestamped_storage = update_storage.child(update_timestamp)
         delta_storage = timestamped_storage.child("delta")
-        delta_table_provider = create_table_provider(
-            config.table_provider, delta_storage
-        )
+        # For database-backed table providers (e.g. arangodb), delta/previous must use a
+        # separate provider so they don't collide with the main index collections.
+        # update_table_provider defaults to table_provider when not explicitly configured.
+        update_tp_config = config.update_table_provider or config.table_provider
+        delta_table_provider = create_table_provider(update_tp_config, delta_storage)
         # copy the previous output to a backup folder, so we can replace it with the update
         # we'll read from this later when we merge the old and new indexes
         previous_storage = timestamped_storage.child("previous")
         previous_table_provider = create_table_provider(
-            config.table_provider, previous_storage
+            update_tp_config, previous_storage
         )
 
         await _copy_previous_output(output_table_provider, previous_table_provider)

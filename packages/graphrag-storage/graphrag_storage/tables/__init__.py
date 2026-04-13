@@ -5,5 +5,6 @@
 
 from .table import Table
 from .table_provider import TableProvider
+from .table_type import TableType
 
-__all__ = ["Table", "TableProvider"]
+__all__ = ["Table", "TableProvider", "TableType"]
