@@ -1245,6 +1245,7 @@ name = "graphrag-monorepo"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "cohere" },
     { name = "python-arango" },
 ]
 
@@ -1273,7 +1274,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "python-arango", specifier = ">=7.10,<9" }]
+requires-dist = [
+    { name = "cohere", specifier = ">=6.0.0" },
+    { name = "python-arango", specifier = ">=7.10,<9" },
+]
 
 [package.metadata.requires-dev]
 dev = [
