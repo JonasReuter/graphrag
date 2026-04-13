@@ -6,8 +6,9 @@ It is responsible for the following tasks:
 - [Local Search](#local-search)
 - [Global Search](#global-search)
 - [DRIFT Search](#drift-search)
-- [Graph Search](#graph-search) *(ArangoDB-native)*
-- [DRIFT Graph Search](#drift-graph-search) *(ArangoDB-native)*
+- [Graph Local Search](#graph-local-search) *(ArangoDB-native)*
+- [Graph Drift Search](#graph-drift-search) *(ArangoDB-native)*
+- [Graph Global Search](#graph-global-search) *(ArangoDB-native)*
 - Basic Search
 - [Question Generation](#question-generation)
 
@@ -29,21 +30,29 @@ DRIFT Search introduces a new approach to local search queries by including comm
 
 To learn more about DRIFT Search, please refer to the [DRIFT Search](drift_search.md) page.
 
-## Graph Search
+## Graph Local Search
 
-Graph search is an ArangoDB-native alternative to local search. Instead of loading parquet files into memory, it uses AQL graph traversal — `APPROX_NEAR_COSINE` vector ANN to find seed entities, then k-hop `GRAPH` expansion for neighbors, community reports, text units, and covariates. **ArangoDB is the single source of truth at query time.**
+Graph local search is an ArangoDB-native alternative to local search. Instead of loading parquet files into memory, it uses AQL graph traversal — `APPROX_NEAR_COSINE` vector ANN to find seed entities, then k-hop `GRAPH` expansion for neighbors, community reports, text units, and covariates. **ArangoDB is the single source of truth at query time.**
 
 Requires `graph_store.enabled: true` and a completed index run.
 
-For more details, see the [Graph Search](graph_search.md) page.
+For more details, see the [Graph Local Search](graph_local_search.md) page.
 
-## DRIFT Graph Search
+## Graph Drift Search
 
-DRIFT Graph search combines DRIFT's iterative global-to-local reasoning with ArangoDB-native graph traversal. Community reports for the global priming phase are loaded from ArangoDB, and each local refinement step uses AQL k-hop traversal instead of in-memory filtering. Like graph search, **no parquet files are read at query time**.
+Graph drift search combines DRIFT's iterative global-to-local reasoning with ArangoDB-native graph traversal. Community reports for the global priming phase are loaded from ArangoDB, and each local refinement step uses AQL k-hop traversal instead of in-memory filtering. **No parquet files are read at query time**.
 
 Requires `graph_store.enabled: true`.
 
-For more details, see the [DRIFT Graph Search](drift_graph_search.md) page.
+For more details, see the [Graph Drift Search](graph_drift_search.md) page.
+
+## Graph Global Search
+
+Graph global search is an ArangoDB-native alternative to global search. Community reports are loaded live from ArangoDB and used in the same map-reduce pipeline as parquet-based global search — no parquet files required. Best for broad, cross-cutting questions across the whole dataset.
+
+Requires `graph_store.enabled: true`.
+
+For more details, see the [Graph Global Search](graph_global_search.md) page.
 
 ## Basic Search
 

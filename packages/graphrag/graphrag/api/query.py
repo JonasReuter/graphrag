@@ -41,7 +41,8 @@ from graphrag.logger.standard_logging import init_loggers
 from graphrag.query.factory import (
     get_arangodb_local_search_engine,
     get_basic_search_engine,
-    get_drift_graph_search_engine,
+    get_graph_drift_search_engine,
+    get_graph_global_search_engine,
     get_drift_search_engine,
     get_global_search_engine,
     get_local_search_engine,
@@ -560,7 +561,7 @@ def basic_search_streaming(
 
 
 @validate_call(config={"arbitrary_types_allowed": True})
-async def graph_search(
+async def graph_local_search(
     config: GraphRagConfig,
     response_type: str,
     query: str,
@@ -568,12 +569,17 @@ async def graph_search(
     verbose: bool = False,
     from_date: str | None = None,
     until_date: str | None = None,
-) -> tuple[str | dict[str, Any] | list[dict[str, Any]], dict[str, pd.DataFrame]]:
+) -> tuple[str | dict[str, Any] | list[dict[str, Any]], dict[str, pd.DataFrame], dict[str, float]]:
     """Perform a local search via ArangoDB native graph traversal (AQL).
 
     ArangoDB is the single source of truth: all data — entities, relationships,
     text units, covariates, and community reports — is fetched live via AQL.
     No parquet files are read.
+
+    Returns
+    -------
+    (answer, context_data, phase_timings)
+        phase_timings is a dict of phase_name → elapsed milliseconds.
 
     Parameters
     ----------
@@ -587,17 +593,23 @@ async def graph_search(
     callbacks = callbacks or []
     full_response = ""
     context_data = {}
+    phase_timings: dict[str, float] = {}
 
     def on_context(context: Any) -> None:
         nonlocal context_data
         context_data = context
 
+    def on_timing(timings: dict[str, float]) -> None:
+        nonlocal phase_timings
+        phase_timings = timings
+
     local_callbacks = NoopQueryCallbacks()
     local_callbacks.on_context = on_context
+    local_callbacks.on_timing = on_timing
     callbacks.append(local_callbacks)
 
-    logger.debug("Executing graph search query: %s", query)
-    async for chunk in graph_search_streaming(
+    logger.debug("Executing graph-local search query: %s", query)
+    async for chunk in graph_local_search_streaming(
         config=config,
         response_type=response_type,
         query=query,
@@ -607,11 +619,11 @@ async def graph_search(
     ):
         full_response += chunk
     logger.debug("Query response: %s", truncate(full_response, 400))
-    return full_response, context_data
+    return full_response, context_data, phase_timings
 
 
 @validate_call(config={"arbitrary_types_allowed": True})
-def graph_search_streaming(
+def graph_local_search_streaming(
     config: GraphRagConfig,
     response_type: str,
     query: str,
@@ -620,7 +632,7 @@ def graph_search_streaming(
     from_date: str | None = None,
     until_date: str | None = None,
 ) -> AsyncGenerator:
-    """ArangoDB-native graph search — no parquet required.
+    """ArangoDB-native graph-local search — no parquet required.
 
     Uses AQL hybrid vector+graph search. All data is fetched live from ArangoDB.
     Temporal parameters (``from_date``, ``until_date``) restrict the context
@@ -634,7 +646,7 @@ def graph_search_streaming(
     )
     prompt = load_search_prompt(config.local_search.prompt)
 
-    logger.debug("Executing streaming graph search query: %s", query)
+    logger.debug("Executing streaming graph-local search query: %s", query)
     search_engine = get_arangodb_local_search_engine(
         config=config,
         description_embedding_store=description_embedding_store,
@@ -646,7 +658,7 @@ def graph_search_streaming(
 
 
 @validate_call(config={"arbitrary_types_allowed": True})
-async def drift_graph_search(
+async def graph_drift_search(
     config: GraphRagConfig,
     response_type: str,
     query: str,
@@ -673,8 +685,8 @@ async def drift_graph_search(
     local_callbacks.on_context = on_context
     callbacks.append(local_callbacks)
 
-    logger.debug("Executing drift-graph search query: %s", query)
-    async for chunk in drift_graph_search_streaming(
+    logger.debug("Executing graph-drift search query: %s", query)
+    async for chunk in graph_drift_search_streaming(
         config=config,
         response_type=response_type,
         query=query,
@@ -686,14 +698,14 @@ async def drift_graph_search(
 
 
 @validate_call(config={"arbitrary_types_allowed": True})
-def drift_graph_search_streaming(
+def graph_drift_search_streaming(
     config: GraphRagConfig,
     response_type: str,
     query: str,
     callbacks: list[QueryCallbacks] | None = None,
     verbose: bool = False,
 ) -> AsyncGenerator:
-    """ArangoDB-native DRIFT search — no parquet required."""
+    """ArangoDB-native graph-drift search — no parquet required."""
     init_loggers(config=config, verbose=verbose, filename="query.log")
 
     description_embedding_store = get_embedding_store(
@@ -709,7 +721,7 @@ def drift_graph_search_streaming(
     local_prompt = load_search_prompt(config.drift_search.prompt)
     reduce_prompt = load_search_prompt(config.drift_search.reduce_prompt)
 
-    search_engine = get_drift_graph_search_engine(
+    search_engine = get_graph_drift_search_engine(
         config=config,
         description_embedding_store=description_embedding_store,
         full_content_embedding_store=full_content_embedding_store,
@@ -719,6 +731,142 @@ def drift_graph_search_streaming(
         callbacks=callbacks,
     )
     return search_engine.stream_search(query=query)
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+async def graph_global_search(
+    config: GraphRagConfig,
+    response_type: str,
+    query: str,
+    callbacks: list[QueryCallbacks] | None = None,
+    verbose: bool = False,
+) -> tuple[str | dict[str, Any] | list[dict[str, Any]], dict[str, pd.DataFrame], dict[str, float]]:
+    """Perform a global map-reduce search using ArangoDB as single source of truth.
+
+    Community reports are loaded live from ArangoDB (no parquet files required)
+    and used in the same GlobalSearch map-reduce pipeline as the parquet-based
+    global search.
+
+    Returns
+    -------
+    (answer, context_data, phase_timings)
+        phase_timings is a dict of phase_name → elapsed milliseconds.
+    """
+    init_loggers(config=config, verbose=verbose, filename="query.log")
+
+    callbacks = callbacks or []
+    full_response = ""
+    phase_timings: dict[str, float] = {}
+
+    def on_timing(timings: dict[str, float]) -> None:
+        nonlocal phase_timings
+        phase_timings = timings
+
+    timing_callback = NoopQueryCallbacks()
+    timing_callback.on_timing = on_timing
+    callbacks.append(timing_callback)
+
+    logger.debug("Executing graph-global search query: %s", query)
+    async for chunk in graph_global_search_streaming(
+        config=config,
+        response_type=response_type,
+        query=query,
+        callbacks=callbacks,
+    ):
+        full_response += chunk
+    logger.debug("Query response: %s", truncate(full_response, 400))
+    return full_response, {}, phase_timings
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+def graph_global_search_streaming(
+    config: GraphRagConfig,
+    response_type: str,
+    query: str,
+    callbacks: list[QueryCallbacks] | None = None,
+    verbose: bool = False,
+) -> AsyncGenerator:
+    """ArangoDB-native graph-global search — no parquet required.
+
+    Loads community reports from ArangoDB and runs a GlobalSearch map-reduce.
+    """
+    init_loggers(config=config, verbose=verbose, filename="query.log")
+
+    full_content_embedding_store = get_embedding_store(
+        config=config.vector_store,
+        embedding_name=community_full_content_embedding,
+    )
+
+    map_prompt = load_search_prompt(config.global_search.map_prompt)
+    reduce_prompt = load_search_prompt(config.global_search.reduce_prompt)
+    knowledge_prompt = load_search_prompt(config.global_search.knowledge_prompt)
+
+    logger.debug("Executing streaming graph-global search query: %s", query)
+    search_engine = get_graph_global_search_engine(
+        config=config,
+        full_content_embedding_store=full_content_embedding_store,
+        response_type=response_type,
+        map_system_prompt=map_prompt,
+        reduce_system_prompt=reduce_prompt,
+        general_knowledge_inclusion_prompt=knowledge_prompt,
+        callbacks=callbacks,
+    )
+    return search_engine.stream_search(query=query)
+
+
+@validate_call(config={"arbitrary_types_allowed": True})
+def timeline(
+    config: GraphRagConfig,
+    entity: str,
+    from_date: str | None = None,
+    until_date: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Return a unified, chronologically sorted timeline for an entity — no LLM.
+
+    Combines relationship events (from the graph) and covariate facts (claims)
+    for the given entity into a single list ordered by date ascending.
+
+    Each item in the returned list has the following keys:
+
+    - ``date``        – ISO-8601 string or ``None`` when no date is available
+    - ``kind``        – ``"relationship"`` or ``"fact"``
+    - ``description`` – human-readable text extracted from the source documents
+    - ``related``     – the other entity name (relationships) or object (facts)
+    - ``status``      – claim status (facts only: CONFIRMED / OPEN / PENDING)
+    - ``source``      – source text excerpt (facts only)
+
+    Parameters
+    ----------
+    config:
+        GraphRAG configuration (``graph_store`` must be enabled and connected).
+    entity:
+        Entity name to look up — case-insensitive.
+    from_date:
+        ISO-8601 lower bound (inclusive).  ``None`` means no lower bound.
+    until_date:
+        ISO-8601 upper bound (inclusive).  ``None`` means no upper bound.
+    limit:
+        Maximum number of combined results (default 200).
+    """
+    from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
+
+    graph_cfg = config.graph_store
+    graph_store = ArangoDBGraphStore(
+        url=graph_cfg.url,
+        username=graph_cfg.username,
+        password=graph_cfg.password,
+        db_name=graph_cfg.db_name,
+        graph_name=graph_cfg.graph_name,
+        vector_size=graph_cfg.vector_size,
+    )
+    graph_store.connect()
+    return graph_store.entity_facts_timeline(
+        entity_title=entity,
+        from_date=from_date,
+        until_date=until_date,
+        limit=limit,
+    )
 
 
 @validate_call(config={"arbitrary_types_allowed": True})

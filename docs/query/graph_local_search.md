@@ -1,8 +1,8 @@
-# Graph Search 🔎
+# Graph Local Search 🔎
 
 ## ArangoDB-Native Local Search
 
-Graph search is an alternative to [local search](local_search.md) that uses native ArangoDB graph traversal (AQL) instead of in-memory entity/relationship filtering. All query-time data — entities, relationships, text units, covariates, and community reports — is fetched directly from ArangoDB. No parquet files are read at query time.
+Graph local search (`--method graph-local`) is an ArangoDB-native alternative to [local search](local_search.md). Instead of loading parquet files into memory, it uses AQL graph traversal — `APPROX_NEAR_COSINE` vector ANN to find seed entities, then k-hop `GRAPH` expansion for neighbors, community reports, text units, and covariates. **ArangoDB is the single source of truth at query time.**
 
 This method is well-suited for the same questions as local search (specific entities, relationships, or facts in your dataset) but with three additional advantages:
 
@@ -16,7 +16,7 @@ This method is well-suited for the same questions as local search (specific enti
 
 ```mermaid
 ---
-title: Graph Search Dataflow (ArangoDB-native)
+title: Graph Local Search Dataflow (ArangoDB-native)
 ---
 %%{ init: { 'flowchart': { 'curve': 'step' } } }%%
 flowchart LR
@@ -63,7 +63,7 @@ flowchart LR
 
 ## Configuration
 
-Graph search has no dedicated config block. It uses parameters from two existing sections:
+Graph local search has no dedicated config block. It uses parameters from two existing sections:
 
 ### From `local_search`
 
@@ -115,7 +115,7 @@ local_search:
 ```bash
 graphrag query \
   --root ./my-project \
-  --method graph \
+  --method graph-local \
   "What are the variants offered by Company?"
 ```
 
@@ -124,14 +124,14 @@ With streaming output:
 ```bash
 graphrag query \
   --root ./my-project \
-  --method graph \
+  --method graph-local \
   --streaming \
   "Describe the relationship between Agent Alpha and Company."
 ```
 
 ## Comparison with Local Search
 
-| | `--method local` | `--method graph` |
+| | `--method local` | `--method graph-local` |
 |---|---|---|
 | **Data source** | Parquet files loaded into RAM | ArangoDB live queries |
 | **Parquet required at query time** | Yes | No |

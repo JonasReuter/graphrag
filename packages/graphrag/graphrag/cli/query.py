@@ -387,7 +387,7 @@ def run_basic_search(
     return response, context_data
 
 
-def run_drift_graph_search(
+def run_graph_drift_search(
     data_dir: Path | None,
     root_dir: Path,
     community_level: int,
@@ -396,7 +396,7 @@ def run_drift_graph_search(
     query: str,
     verbose: bool,
 ):
-    """Perform a DRIFT search using ArangoDB as single source of truth.
+    """Perform a graph-drift search using ArangoDB as single source of truth.
 
     No parquet files are loaded. Community reports, entities, relationships,
     text units, and covariates are all fetched live from ArangoDB via AQL.
@@ -419,7 +419,7 @@ def run_drift_graph_search(
             callbacks = NoopQueryCallbacks()
             callbacks.on_context = on_context
 
-            async for stream_chunk in api.drift_graph_search_streaming(
+            async for stream_chunk in api.graph_drift_search_streaming(
                 config=config,
                 response_type=response_type,
                 query=query,
@@ -435,7 +435,7 @@ def run_drift_graph_search(
         return asyncio.run(run_streaming_search())
 
     response, context_data = asyncio.run(
-        api.drift_graph_search(
+        api.graph_drift_search(
             config=config,
             response_type=response_type,
             query=query,
@@ -446,7 +446,7 @@ def run_drift_graph_search(
     return response, context_data
 
 
-def run_graph_search(
+def run_graph_local_search(
     data_dir: Path | None,
     root_dir: Path,
     community_level: int,
@@ -457,7 +457,7 @@ def run_graph_search(
     from_date: str | None = None,
     until_date: str | None = None,
 ):
-    """Perform a graph search using ArangoDB as single source of truth.
+    """Perform a graph-local search using ArangoDB as single source of truth.
 
     No parquet files are loaded. All data is fetched live from ArangoDB via AQL.
     """
@@ -482,7 +482,7 @@ def run_graph_search(
             callbacks = NoopQueryCallbacks()
             callbacks.on_context = on_context
 
-            async for stream_chunk in api.graph_search_streaming(
+            async for stream_chunk in api.graph_local_search_streaming(
                 config=config,
                 response_type=response_type,
                 query=query,
@@ -499,8 +499,8 @@ def run_graph_search(
 
         return asyncio.run(run_streaming_search())
 
-    response, context_data = asyncio.run(
-        api.graph_search(
+    response, context_data, phase_timings = asyncio.run(
+        api.graph_local_search(
             config=config,
             response_type=response_type,
             query=query,
@@ -510,7 +510,61 @@ def run_graph_search(
         )
     )
     print(response)
+    if phase_timings:
+        phases_str = "  ".join(f"{k}={v:.0f}ms" for k, v in phase_timings.items() if k != "map_batches")
+        print(f"\n[timings] {phases_str}")
+    return response, context_data
 
+
+def run_graph_global_search(
+    data_dir: Path | None,
+    root_dir: Path,
+    response_type: str,
+    streaming: bool,
+    query: str,
+    verbose: bool,
+):
+    """Perform a graph-global search using ArangoDB as single source of truth.
+
+    No parquet files are loaded. Community reports are fetched live from
+    ArangoDB and used in a map-reduce style global search.
+    """
+    cli_overrides: dict[str, Any] = {}
+    if data_dir:
+        cli_overrides["output_storage"] = {"base_dir": str(data_dir)}
+    config = load_config(root_dir=root_dir, cli_overrides=cli_overrides)
+
+    if streaming:
+
+        async def run_streaming_search():
+            full_response = ""
+
+            async for stream_chunk in api.graph_global_search_streaming(
+                config=config,
+                response_type=response_type,
+                query=query,
+                verbose=verbose,
+            ):
+                full_response += stream_chunk
+                print(stream_chunk, end="")
+                sys.stdout.flush()
+            print()
+            return full_response, {}
+
+        return asyncio.run(run_streaming_search())
+
+    response, context_data, phase_timings = asyncio.run(
+        api.graph_global_search(
+            config=config,
+            response_type=response_type,
+            query=query,
+            verbose=verbose,
+        )
+    )
+    print(response)
+    if phase_timings:
+        phases_str = "  ".join(f"{k}={v:.0f}ms" for k, v in phase_timings.items() if k != "map_batches")
+        print(f"\n[timings] {phases_str}")
     return response, context_data
 
 

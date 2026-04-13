@@ -595,7 +595,7 @@ graph_store:
 - `k` **int** - Number of text units to retrieve from the vector store for context building.
 - `max_context_tokens` **int** - The maximum context size to create, in tokens.
 
-### graph_search (`--method graph`)
+### graph_local_search (`--method graph-local`)
 
 ArangoDB-native local search. Uses `APPROX_NEAR_COSINE` vector ANN on the `entities.vector` field to find seed entities, then expands their neighborhood via k-hop AQL graph traversal. **ArangoDB is the single source of truth** — no parquet files are read at query time.
 
@@ -603,7 +603,7 @@ ArangoDB-native local search. Uses `APPROX_NEAR_COSINE` vector ANN on the `entit
 
 #### Config sources
 
-`graph_search` has no dedicated config section. It reuses parameters from two existing sections:
+`graph_local_search` has no dedicated config section. It reuses parameters from two existing sections:
 
 | Parameter | Config section | Description |
 |-----------|---------------|-------------|
@@ -626,7 +626,7 @@ ArangoDB-native local search. Uses `APPROX_NEAR_COSINE` vector ANN on the `entit
 | Text units | ArangoDB — via `entity_text_unit` edge traversal |
 | Covariates | ArangoDB — via `entity_covariate` edge traversal (if `extract_claims` was enabled) |
 
-### drift_graph_search (`--method drift-graph`)
+### graph_drift_search (`--method graph-drift`)
 
 Combines DRIFT iterative search with ArangoDB native graph traversal. **ArangoDB is the single source of truth** — community reports are loaded from ArangoDB for the global priming phase, and all local refinement steps use AQL graph traversal. No parquet files are read at query time.
 
@@ -635,3 +635,23 @@ Combines DRIFT iterative search with ArangoDB native graph traversal. **ArangoDB
 #### Config sources
 
 Reuses the same `drift_search` config section as `--method drift`. The local context params (`local_search_*` fields) control the ArangoDB graph traversal depth and token budgets for the local refinement steps. `graph_store.traversal_depth` and `graph_store.top_k_seeds` apply to the graph traversal.
+
+### graph_global_search (`--method graph-global`)
+
+ArangoDB-native global search. Community reports are loaded live from ArangoDB and used in the same map-reduce pipeline as parquet-based global search. **ArangoDB is the single source of truth** — no parquet files are read at query time.
+
+Best for broad, cross-cutting questions where the answer is distributed across many parts of the dataset. Uses full-content embeddings from the vector store for community report selection.
+
+**Requires** `graph_store.enabled: true`.
+
+#### Config sources
+
+Reuses the same `global_search` config section as `--method global`:
+
+| Parameter | Config section | Description |
+|-----------|---------------|-------------|
+| `completion_model_id` | `global_search` | LLM for map and reduce steps |
+| `map_prompt`, `reduce_prompt`, `knowledge_prompt` | `global_search` | System prompts |
+| `data_max_tokens`, `max_context_tokens` | `global_search` | Token budgets |
+| `map_max_length`, `reduce_max_length` | `global_search` | Response length limits |
+| `url`, `username`, `password`, `db_name` | `graph_store` | ArangoDB connection |

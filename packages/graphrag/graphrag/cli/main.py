@@ -443,10 +443,11 @@ def _query_cli(
     """Query a knowledge graph index."""
     from graphrag.cli.query import (
         run_basic_search,
-        run_drift_graph_search,
         run_drift_search,
         run_global_search,
-        run_graph_search,
+        run_graph_drift_search,
+        run_graph_global_search,
+        run_graph_local_search,
         run_local_search,
     )
 
@@ -493,8 +494,8 @@ def _query_cli(
                 query=query,
                 verbose=verbose,
             )
-        case SearchMethod.DRIFT_GRAPH:
-            run_drift_graph_search(
+        case SearchMethod.GRAPH_DRIFT:
+            run_graph_drift_search(
                 data_dir=data,
                 root_dir=root,
                 community_level=community_level,
@@ -503,8 +504,8 @@ def _query_cli(
                 query=query,
                 verbose=verbose,
             )
-        case SearchMethod.GRAPH:
-            run_graph_search(
+        case SearchMethod.GRAPH_LOCAL:
+            run_graph_local_search(
                 data_dir=data,
                 root_dir=root,
                 community_level=community_level,
@@ -514,6 +515,15 @@ def _query_cli(
                 verbose=verbose,
                 from_date=from_date,
                 until_date=until_date,
+            )
+        case SearchMethod.GRAPH_GLOBAL:
+            run_graph_global_search(
+                data_dir=data,
+                root_dir=root,
+                response_type=response_type,
+                streaming=streaming,
+                query=query,
+                verbose=verbose,
             )
         case _:
             raise ValueError(INVALID_METHOD_ERROR)

@@ -1,8 +1,8 @@
-# DRIFT Graph Search 🔎
+# Graph Drift Search 🔎
 
 ## DRIFT with ArangoDB Graph Traversal
 
-DRIFT Graph search combines the iterative reasoning of [DRIFT search](drift_search.md) with the ArangoDB-native graph traversal of [graph search](graph_search.md). **ArangoDB is the single source of truth** — community reports for the global priming phase are loaded directly from ArangoDB, and all local refinement steps use AQL graph traversal instead of in-memory entity/relationship filtering.
+Graph drift search (`--method graph-drift`) combines the iterative reasoning of [DRIFT search](drift_search.md) with the ArangoDB-native graph traversal of [graph local search](graph_local_search.md). **ArangoDB is the single source of truth** — community reports for the global priming phase are loaded directly from ArangoDB, and all local refinement steps use AQL graph traversal instead of in-memory entity/relationship filtering.
 
 Like standard DRIFT search, this method balances global breadth (community-level overview) with local depth (entity-level detail), making it suitable for complex, multi-faceted questions. Unlike standard DRIFT, no parquet files are read at query time.
 
@@ -10,11 +10,11 @@ Like standard DRIFT search, this method balances global breadth (community-level
 
 ## Methodology
 
-DRIFT Graph search follows the same three-phase structure as DRIFT search, but replaces the in-memory local search with ArangoDB AQL traversal in phases B and C:
+Graph drift search follows the same three-phase structure as DRIFT search, but replaces the in-memory local search with ArangoDB AQL traversal in phases B and C:
 
 ```mermaid
 ---
-title: DRIFT Graph Search Phases
+title: Graph Drift Search Phases
 ---
 %%{ init: { 'flowchart': { 'curve': 'step' } } }%%
 flowchart TD
@@ -49,7 +49,7 @@ All community reports are loaded from the `community_reports` collection in Aran
 
 ### Phase B: Local Refinement (AQL)
 
-Each follow-up question is processed using the same AQL pipeline as `--method graph`:
+Each follow-up question is processed using the same AQL pipeline as `--method graph-local`:
 
 1. `APPROX_NEAR_COSINE` on `entities.vector` → seed entities
 2. k-hop `GRAPH` traversal → neighbor entities + relationship edges
@@ -65,7 +65,7 @@ Follow-up answers are ranked by relevance and assembled into a final hierarchica
 
 ## Configuration
 
-DRIFT Graph search reuses two existing config sections:
+Graph drift search reuses two existing config sections:
 
 ### From `drift_search`
 
@@ -125,7 +125,7 @@ drift_search:
 ```bash
 graphrag query \
   --root ./my-project \
-  --method drift-graph \
+  --method graph-drift \
   "What quality assurance processes does company use for sensor calibration?"
 ```
 
@@ -134,14 +134,14 @@ With streaming:
 ```bash
 graphrag query \
   --root ./my-project \
-  --method drift-graph \
+  --method graph-drift \
   --streaming \
   "How do the sensor variants compare in terms of measurement accuracy?"
 ```
 
 ## Comparison
 
-| | `--method drift` | `--method drift-graph` |
+| | `--method drift` | `--method graph-drift` |
 |---|---|---|
 | **Parquet at query time** | Yes (entities, relationships, text units) | No |
 | **Community priming source** | Parquet-indexed reports | ArangoDB `community_reports` collection |
@@ -152,5 +152,5 @@ graphrag query \
 ## Learn More
 
 - [DRIFT Search](drift_search.md) — the standard in-memory variant this method is based on
-- [Graph Search](graph_search.md) — the AQL-based local search used in Phase B
+- [Graph Local Search](graph_local_search.md) — the AQL-based local search used in Phase B
 - [DRIFT Search blog post](https://www.microsoft.com/en-us/research/blog/introducing-drift-search-combining-global-and-local-search-methods-to-improve-quality-and-efficiency/)

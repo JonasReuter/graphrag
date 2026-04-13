@@ -342,7 +342,7 @@ def get_drift_search_engine(
     )
 
 
-def get_drift_graph_search_engine(
+def get_graph_drift_search_engine(
     config: GraphRagConfig,
     description_embedding_store: VectorStore,
     response_type: str,
@@ -438,6 +438,90 @@ def get_drift_graph_search_engine(
             local_mixed_context=graph_context_builder,
         ),
         tokenizer=tokenizer,
+        callbacks=callbacks,
+    )
+
+
+def get_graph_global_search_engine(
+    config: GraphRagConfig,
+    response_type: str,
+    full_content_embedding_store: "VectorStore | None" = None,
+    map_system_prompt: str | None = None,
+    reduce_system_prompt: str | None = None,
+    general_knowledge_inclusion_prompt: str | None = None,
+    callbacks: list[QueryCallbacks] | None = None,
+) -> GlobalSearch:
+    """Create a global search engine backed by ArangoDB — no parquet required.
+
+    Community reports are loaded live from ArangoDB via ArangoDBGraphRetriever,
+    then passed to the same GlobalSearch / GlobalCommunityContext pipeline used
+    by the parquet-based global search.  Full-content embeddings are loaded from
+    the configured vector store so that dynamic community selection works.
+    """
+    from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
+
+    from graphrag.query.input.retrieval.arangodb_graph_retriever import (
+        ArangoDBGraphRetriever,
+    )
+
+    graph_cfg = config.graph_store
+    gs_config = config.global_search
+
+    model_settings = config.get_completion_model_config(gs_config.completion_model_id)
+    model = create_completion(model_settings)
+    model_params = model_settings.call_args
+    tokenizer = model.tokenizer
+
+    graph_store = ArangoDBGraphStore(
+        url=graph_cfg.url,
+        username=graph_cfg.username,
+        password=graph_cfg.password,
+        db_name=graph_cfg.db_name,
+        graph_name=graph_cfg.graph_name,
+        vector_size=graph_cfg.vector_size,
+    )
+    graph_store.connect()
+
+    retriever = ArangoDBGraphRetriever(graph_store)
+    reports = retriever.get_all_community_reports()
+
+    if full_content_embedding_store is not None:
+        read_indexer_report_embeddings(reports, full_content_embedding_store)
+    reports = [r for r in reports if r.full_content_embedding is not None]
+
+    return GlobalSearch(
+        model=model,
+        map_system_prompt=map_system_prompt,
+        reduce_system_prompt=reduce_system_prompt,
+        general_knowledge_inclusion_prompt=general_knowledge_inclusion_prompt,
+        context_builder=GlobalCommunityContext(
+            community_reports=reports,
+            communities=[],
+            entities=[],
+            tokenizer=tokenizer,
+        ),
+        tokenizer=tokenizer,
+        max_data_tokens=gs_config.data_max_tokens,
+        map_llm_params={**model_params},
+        reduce_llm_params={**model_params},
+        map_max_length=gs_config.map_max_length,
+        reduce_max_length=gs_config.reduce_max_length,
+        allow_general_knowledge=False,
+        json_mode=False,
+        context_builder_params={
+            "use_community_summary": False,
+            "shuffle_data": True,
+            "include_community_rank": True,
+            "min_community_rank": 0,
+            "community_rank_name": "rank",
+            "include_community_weight": True,
+            "community_weight_name": "occurrence weight",
+            "normalize_community_weight": True,
+            "max_context_tokens": gs_config.max_context_tokens,
+            "context_name": "Reports",
+        },
+        concurrent_coroutines=config.concurrent_requests,
+        response_type=response_type,
         callbacks=callbacks,
     )
 
