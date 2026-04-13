@@ -9,6 +9,7 @@ It is responsible for the following tasks:
 - [Graph Local Search](#graph-local-search) *(ArangoDB-native)*
 - [Graph Drift Search](#graph-drift-search) *(ArangoDB-native)*
 - [Graph Global Search](#graph-global-search) *(ArangoDB-native)*
+- [Smart Search](#smart-search) *(ArangoDB-native, automatic routing)*
 - Basic Search
 - [Question Generation](#question-generation)
 
@@ -53,6 +54,12 @@ Graph global search is an ArangoDB-native alternative to global search. Communit
 Requires `graph_store.enabled: true`.
 
 For more details, see the [Graph Global Search](graph_global_search.md) page.
+
+## Smart Search
+
+Smart search (`--method smart`) is an automatic routing layer on top of the three ArangoDB-native search modes above. It classifies the incoming query with a fast LLM call (`temperature=0`, `max_tokens=60`) and dispatches to `graph_local_search`, `graph_global_search`, or `graph_drift_search` accordingly. No configuration changes are needed beyond `graph_store.enabled: true`.
+
+For more details, see the [Smart Search](smart_search.md) page.
 
 ## Basic Search
 
