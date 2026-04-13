@@ -22,6 +22,7 @@ title: Graph Local Search Dataflow (ArangoDB-native)
 flowchart LR
 
     uq[User Query] --Embed--> qv[Query Vector]
+    ch1[Conversation\nHistory] --Prepend\nuser turns--> qv
 
     qv --APPROX_NEAR_COSINE\non entities.vector--> seeds[Seed Entities\ntop-k ANN]
 
@@ -29,11 +30,17 @@ flowchart LR
 
     seeds & nbrs --entity_community_membership\nedge traversal--> cr[Community\nReports]
 
-    seeds & nbrs --entity_text_unit\nedge traversal--> tu[Text Units]
+    seeds & nbrs --entity_text_unit\nedge traversal\n(Path A)--> tuA[Text Units\nfrom entities]
+    qv --similarity_search\ntext_unit vectorstore\n(Path B, optional)--> tuB[Text Units\ndirect ANN]
+    tuA & tuB --Union--> tu[Text Unit\nCandidates]
 
-    seeds & nbrs --entity_covariate\nedge traversal--> cov[Covariates]
+    seeds & nbrs --entity_covariate\nedge traversal--> cov[Covariates\n/ Claims]
 
-    cr & tu & cov & nbrs --Token budget\nprioritization--> ctx[Context Window]
+    cr --Cohere Rerank\n(optional)--> crR[Reranked\nReports]
+    tu --Cohere Rerank\n(optional)--> tuR[Reranked\nText Units]
+
+    crR & tuR & cov & nbrs --Token budget\nprioritization--> ctx[Context Window]
+    ch1 --> ctx
 
     ctx --> res[Response]
 
@@ -42,24 +49,26 @@ flowchart LR
     classDef rose fill:#DD8694,stroke:#333,stroke-width:2px,color:#fff;
     classDef orange fill:#F19914,stroke:#333,stroke-width:2px,color:#fff;
     classDef purple fill:#B356CD,stroke:#333,stroke-width:2px,color:#fff;
-    class uq turquoise
+    class uq,ch1 turquoise
     class qv,seeds green
-    class nbrs,cr,tu,cov rose
-    class ctx orange
+    class nbrs,cr,tuA,tuB,tu,cov rose
+    class crR,tuR,ctx orange
     class res purple
 ```
 
 ### Step-by-step
 
-1. **Embed query** — the user query is embedded using the configured embedding model
+1. **Embed query** — the user query (optionally prepended with prior user turns from the conversation history) is embedded using the configured embedding model
 2. **Vector seed** — `APPROX_NEAR_COSINE` on the `entities.vector` field (HNSW index) returns the top-k semantically closest entity documents
 3. **k-hop expansion** — a single AQL `FOR v, e IN 1..depth ANY seed._id GRAPH knowledge_graph` query traverses outward from all seeds simultaneously, collecting neighbor entities and relationship edges. Seed entities are included in the result set.
 4. **Edge traversal for context** — three further AQL traversals collect:
    - Community reports via `entity_community_membership` edges
-   - Text units via `entity_text_unit` edges
+   - Text units via `entity_text_unit` edges (**Path A**)
    - Covariates via `entity_covariate` edges (when `extract_claims` was enabled during indexing)
-5. **Token budget assembly** — entities, relationships, community reports, and text units are ranked and filtered to fit within `max_context_tokens`, using the same proportional budget logic as local search
-6. **LLM response** — the assembled context is passed to the completion model
+5. **Hybrid text unit retrieval (optional)** — when a `text_unit_embeddings` store is configured, a direct vector search on text units (**Path B**) is unioned with Path A, replicating the classic RAG oversampling pattern
+6. **Rerank (optional)** — when a Cohere reranker is configured, community reports and text unit candidates are rescored by direct query relevance before the token-budget fill
+7. **Token budget assembly** — entities, relationships, community reports, and text units are ranked and filtered to fit within `max_context_tokens`, using the same proportional budget logic as local search. Conversation history is prepended to the assembled context.
+8. **LLM response** — the assembled context is passed to the completion model
 
 ## Configuration
 
