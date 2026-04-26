@@ -1,7 +1,7 @@
 # Copyright (c) 2024 Microsoft Corporation.
 # Licensed under the MIT License
 
-"""Entity resolution operation: embed → search → group → LLM confirm → merge → upsert."""
+"""Entity resolution operation: embed -> search -> group -> LLM confirm -> merge -> upsert."""
 
 import json
 import logging
@@ -13,15 +13,14 @@ import pandas as pd
 from graphrag_storage.tables.table import Table
 from graphrag_vectors import VectorStore, VectorStoreDocument
 
-from graphrag.data_model.row_transformers import transform_entity_row
 from graphrag.data_model.schemas import ENTITIES_FINAL_COLUMNS
-from graphrag.index.operations.resolve_entities.entity_grouping import (
-    build_candidate_groups,
-)
 from graphrag.index.operations.resolve_entities.entity_merge_extractor import (
     EntityMergeExtractor,
 )
-from graphrag.index.operations.resolve_entities.typing import MergeGroup
+from graphrag.index.operations.resolve_entities.entity_profile_resolution import (
+    build_ann_hybrid_merge_map,
+    build_entity_profile_texts,
+)
 
 if TYPE_CHECKING:
     from graphrag_llm.completion import LLMCompletion
@@ -43,22 +42,34 @@ async def resolve_entities(
     top_k: int,
     strategy: str = "llm_context_window",
     window_tokens: int = 100_000,
+    auto_merge_threshold: float = 0.95,
+    llm_review_threshold: float = 0.82,
+    max_llm_groups: int = 5000,
+    profile_neighbor_limit: int = 30,
 ) -> dict[str, list[dict[str, Any]]]:
     """Run the full entity resolution pass.
 
-    For strategy ``llm_context_window`` (default):
+    For strategy ``llm_context_window``:
     1. Load all entities from the table.
     2. Embed each entity (title: description).
     3. Sort entities by greedy nearest-neighbor traversal of embedding space.
     4. Pack into windows of ``window_tokens`` and let the LLM identify duplicates.
     5. Apply confirmed merges to entities and relationships tables.
 
-    For strategy ``embedding_search`` (legacy):
+    For strategy ``embedding_search``:
     1. Load all entities from the table.
     2. Embed each entity and upsert into the persistent store.
     3. For every entity, search the store for the top-k most similar neighbours.
     4. Group pairs above the threshold using Union-Find.
     5. Confirm each group via LLM.
+    6. Apply confirmed merges to entities and relationships tables.
+
+    For strategy ``ann_hybrid``:
+    1. Load entities and relationships.
+    2. Embed graph-aware entity profiles.
+    3. Use vector-store top-k search as scalable ANN-style blocking.
+    4. Score candidate pairs with embedding, title, type, and graph context.
+    5. Auto-merge high-confidence groups and send only borderline groups to the LLM.
     6. Apply confirmed merges to entities and relationships tables.
 
     Returns sample rows for logging.
@@ -70,15 +81,33 @@ async def resolve_entities(
             all_entities.append(dict(row))
 
     if not all_entities:
-        logger.warning("resolve_entities: no entities found — skipping.")
+        logger.warning("resolve_entities: no entities found - skipping.")
         return {"entities": [], "relationships": []}
 
     logger.info("resolve_entities: loaded %d entities", len(all_entities))
 
+    relationship_rows: list[dict[str, Any]] = []
+    if strategy == "ann_hybrid":
+        async for row in relationships_table:
+            relationship_rows.append(dict(row))
+        logger.info(
+            "resolve_entities: loaded %d relationships for graph-aware profiles",
+            len(relationship_rows),
+        )
+
     # --- Phase 2: embed entities inline and upsert into vector store ---
-    texts = [f"{e['title']}: {e.get('description', '')}" for e in all_entities]
+    if strategy == "ann_hybrid":
+        texts = build_entity_profile_texts(
+            all_entities,
+            relationship_rows,
+            neighbour_limit=profile_neighbor_limit,
+        )
+    else:
+        texts = [f"{e['title']}: {e.get('description', '')}" for e in all_entities]
+
     ids = [str(e["id"]) for e in all_entities]
-    embeddings = await _embed_texts(texts, ids, embedding_model, vector_store)
+    titles = [str(e["title"]) for e in all_entities]
+    embeddings = await _embed_texts(texts, ids, titles, embedding_model, vector_store)
 
     # --- Phase 3 & 4: resolve duplicates based on strategy ---
     if strategy == "llm_context_window":
@@ -88,6 +117,19 @@ async def resolve_entities(
             completion_model=completion_model,
             prompt=prompt,
             window_tokens=window_tokens,
+        )
+    elif strategy == "ann_hybrid":
+        merge_map = await build_ann_hybrid_merge_map(
+            all_entities=all_entities,
+            relationships=relationship_rows,
+            embeddings=embeddings,
+            vector_store=vector_store,
+            extractor=EntityMergeExtractor(model=completion_model, prompt=prompt),
+            top_k=top_k,
+            candidate_threshold=similarity_threshold,
+            auto_merge_threshold=auto_merge_threshold,
+            llm_review_threshold=llm_review_threshold,
+            max_llm_groups=max_llm_groups,
         )
     else:
         merge_map = await _build_merge_map(
@@ -100,14 +142,19 @@ async def resolve_entities(
         )
 
     if not merge_map:
-        logger.info("resolve_entities: no merges confirmed — graph unchanged.")
+        logger.info("resolve_entities: no merges confirmed - graph unchanged.")
         return {"entities": [], "relationships": [], "contradictions": pd.DataFrame()}
 
     logger.info("resolve_entities: applying %d merge mappings", len(merge_map))
 
     # --- Phase 5: apply merges ---
     entity_samples = await _rewrite_entities(entities_table, all_entities, merge_map)
-    relationship_samples = await _rewrite_relationships(relationships_table, merge_map)
+    if strategy == "ann_hybrid":
+        relationship_samples = await _rewrite_relationship_rows(
+            relationships_table, relationship_rows, merge_map
+        )
+    else:
+        relationship_samples = await _rewrite_relationships(relationships_table, merge_map)
     contradictions_df = _build_contradictions_from_merge_map(merge_map)
 
     logger.info(
@@ -128,6 +175,7 @@ async def resolve_entities(
 async def _embed_texts(
     texts: list[str],
     ids: list[str],
+    titles: list[str],
     model: "LLMEmbedding",
     vector_store: VectorStore,
 ) -> list[list[float]]:
@@ -151,7 +199,7 @@ async def _embed_texts(
                 VectorStoreDocument(
                     id=doc_id,
                     vector=vec_list,
-                    data={"title": texts[start + i].split(":")[0]},
+                    data={"title": titles[start + i]},
                 )
             )
 
@@ -170,7 +218,7 @@ async def _build_merge_map(
     similarity_threshold: float,
     top_k: int,
 ) -> dict[str, str]:
-    """Return alias→canonical mapping for confirmed merges.
+    """Return alias->canonical mapping for confirmed merges.
 
     Uses the vector store for neighbour lookup (persistent across runs),
     then groups candidates via Union-Find, then confirms via LLM.
@@ -180,7 +228,7 @@ async def _build_merge_map(
 
     # Collect candidate pairs from vector store search
     candidate_pairs: list[tuple[int, int]] = []
-    for i, (entity, vec) in enumerate(zip(all_entities, embeddings, strict=True)):
+    for i, (_entity, vec) in enumerate(zip(all_entities, embeddings, strict=True)):
         if not vec:
             continue
         results = vector_store.similarity_search_by_vector(
@@ -203,8 +251,6 @@ async def _build_merge_map(
 
     # Deduplicate pairs and build groups
     unique_pairs = list({(lo, hi) for lo, hi in candidate_pairs})
-    # Build simple adjacency and use build_candidate_groups for transitive closure
-    # We already have pairs — pass embeddings to get Union-Find grouping
     groups = _groups_from_pairs(unique_pairs, len(titles))
 
     merge_map: dict[str, str] = {}
@@ -231,17 +277,15 @@ async def _build_merge_map(
     return merge_map
 
 
-def _groups_from_pairs(
-    pairs: list[tuple[int, int]], n: int
-) -> list[list[int]]:
+def _groups_from_pairs(pairs: list[tuple[int, int]], n: int) -> list[list[int]]:
     """Build transitive closure groups from a list of (i, j) pairs via Union-Find."""
+    from collections import defaultdict
+
     from graphrag.index.operations.resolve_entities.entity_grouping import _UnionFind
 
     uf = _UnionFind(n)
     for lo, hi in pairs:
         uf.union(lo, hi)
-
-    from collections import defaultdict
 
     groups: dict[int, list[int]] = defaultdict(list)
     # Only include indices that appear in at least one pair
@@ -253,7 +297,7 @@ def _groups_from_pairs(
 
 
 def _sort_by_embedding(embeddings: list[list[float]]) -> list[int]:
-    """Greedy nearest-neighbor sort — returns indices in traversal order.
+    """Greedy nearest-neighbor sort - returns indices in traversal order.
 
     Adjacent indices in the result have maximally similar embeddings,
     which clusters potential duplicates close together in the LLM window.
@@ -274,7 +318,7 @@ def _sort_by_embedding(embeddings: list[list[float]]) -> list[int]:
 
     for _ in range(n - 1):
         sims = E @ E[order[-1]]
-        sims[visited] = -np.inf
+        sims[visited] = -float("inf")
         next_idx = int(np.argmax(sims))
         order.append(next_idx)
         visited[next_idx] = True
@@ -282,9 +326,7 @@ def _sort_by_embedding(embeddings: list[list[float]]) -> list[int]:
     return order
 
 
-def _pack_windows(
-    entities: list[dict], window_tokens: int
-) -> list[list[dict]]:
+def _pack_windows(entities: list[dict], window_tokens: int) -> list[list[dict]]:
     """Pack entities into windows not exceeding window_tokens (estimated)."""
     windows: list[list[dict]] = []
     current: list[dict] = []
@@ -331,8 +373,6 @@ async def _resolve_via_context_window(
     windows = _pack_windows(sorted_entities, window_tokens)
     extractor = EntityDisambiguationExtractor(model=completion_model, prompt=prompt)
 
-    # Track which titles appear in which window to handle cross-window duplicates
-    # (not handled in this version — within-window disambiguation only)
     merge_map: dict[str, str] = {}
     for window in windows:
         groups = await extractor(window)
@@ -354,7 +394,7 @@ async def _rewrite_entities(
     merge_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Rewrite the entities table: drop aliases, merge text_unit_ids into canonical."""
-    # Build a lookup: canonical title → merged entity data
+    # Build a lookup: canonical title -> merged entity data
     canonical_data: dict[str, dict[str, Any]] = {}
     for entity in all_entities:
         title = entity["title"]
@@ -407,9 +447,21 @@ async def _rewrite_relationships(
     merge_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Rewrite relationship source/target using the merge map, remove self-loops, re-deduplicate."""
+    rows = []
+    async for row in relationships_table:
+        rows.append(dict(row))
+    return await _rewrite_relationship_rows(relationships_table, rows, merge_map)
+
+
+async def _rewrite_relationship_rows(
+    relationships_table: Table,
+    rows: list[dict[str, Any]],
+    merge_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Rewrite already-loaded relationship rows and write them back to the table."""
     seen: dict[tuple[str, str], dict[str, Any]] = {}
 
-    async for row in relationships_table:
+    for row in rows:
         source = merge_map.get(row.get("source", ""), row.get("source", ""))
         target = merge_map.get(row.get("target", ""), row.get("target", ""))
 
@@ -423,9 +475,13 @@ async def _rewrite_relationships(
             row["target"] = target
             seen[key] = dict(row)
         else:
-            # Merge text_unit_ids — guard against numpy arrays from parquet
+            # Merge text_unit_ids - guard against numpy arrays from parquet
             raw_existing = seen[key].get("text_unit_ids")
-            existing_ids = set(raw_existing.tolist() if hasattr(raw_existing, "tolist") else (raw_existing or []))
+            existing_ids = set(
+                raw_existing.tolist()
+                if hasattr(raw_existing, "tolist")
+                else (raw_existing or [])
+            )
             raw_new = row.get("text_unit_ids")
             new_ids = raw_new.tolist() if hasattr(raw_new, "tolist") else (raw_new or [])
             for uid in new_ids:
@@ -448,10 +504,16 @@ async def _rewrite_relationships(
 
 
 _CONTRADICTION_COLUMNS = [
-    "id", "human_readable_id", "relation_type",
-    "subject_a_type", "subject_a_id",
-    "subject_b_type", "subject_b_id",
-    "description", "confidence", "detection_method",
+    "id",
+    "human_readable_id",
+    "relation_type",
+    "subject_a_type",
+    "subject_a_id",
+    "subject_b_type",
+    "subject_b_id",
+    "description",
+    "confidence",
+    "detection_method",
 ]
 
 
@@ -460,7 +522,7 @@ def _build_contradictions_from_merge_map(
 ) -> pd.DataFrame:
     """Build a contradictions DataFrame from LLM-confirmed entity merges.
 
-    Each alias→canonical pair becomes a ``same_as`` Contradiction record,
+    Each alias->canonical pair becomes a ``same_as`` Contradiction record,
     preserving the provenance of every entity deduplication decision.
     """
     if not merge_map:
@@ -468,16 +530,18 @@ def _build_contradictions_from_merge_map(
 
     rows = []
     for i, (alias, canonical) in enumerate(merge_map.items()):
-        rows.append({
-            "id": str(uuid4()),
-            "human_readable_id": str(i),
-            "relation_type": "same_as",
-            "subject_a_type": "entity",
-            "subject_a_id": alias,
-            "subject_b_type": "entity",
-            "subject_b_id": canonical,
-            "description": f'"{alias}" is a duplicate of "{canonical}" (LLM-confirmed)',
-            "confidence": 0.9,
-            "detection_method": "llm_verified",
-        })
+        rows.append(
+            {
+                "id": str(uuid4()),
+                "human_readable_id": str(i),
+                "relation_type": "same_as",
+                "subject_a_type": "entity",
+                "subject_a_id": alias,
+                "subject_b_type": "entity",
+                "subject_b_id": canonical,
+                "description": f'"{alias}" is a duplicate of "{canonical}" (entity resolution)',
+                "confidence": 0.9,
+                "detection_method": "entity_resolution",
+            }
+        )
     return pd.DataFrame(rows)
