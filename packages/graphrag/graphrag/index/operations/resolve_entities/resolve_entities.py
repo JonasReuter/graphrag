@@ -106,7 +106,8 @@ async def resolve_entities(
         texts = [f"{e['title']}: {e.get('description', '')}" for e in all_entities]
 
     ids = [str(e["id"]) for e in all_entities]
-    embeddings = await _embed_texts(texts, ids, embedding_model, vector_store)
+    titles = [str(e["title"]) for e in all_entities]
+    embeddings = await _embed_texts(texts, ids, titles, embedding_model, vector_store)
 
     # --- Phase 3 & 4: resolve duplicates based on strategy ---
     if strategy == "llm_context_window":
@@ -148,7 +149,12 @@ async def resolve_entities(
 
     # --- Phase 5: apply merges ---
     entity_samples = await _rewrite_entities(entities_table, all_entities, merge_map)
-    relationship_samples = await _rewrite_relationships(relationships_table, merge_map)
+    if strategy == "ann_hybrid":
+        relationship_samples = await _rewrite_relationship_rows(
+            relationships_table, relationship_rows, merge_map
+        )
+    else:
+        relationship_samples = await _rewrite_relationships(relationships_table, merge_map)
     contradictions_df = _build_contradictions_from_merge_map(merge_map)
 
     logger.info(
@@ -169,6 +175,7 @@ async def resolve_entities(
 async def _embed_texts(
     texts: list[str],
     ids: list[str],
+    titles: list[str],
     model: "LLMEmbedding",
     vector_store: VectorStore,
 ) -> list[list[float]]:
@@ -192,7 +199,7 @@ async def _embed_texts(
                 VectorStoreDocument(
                     id=doc_id,
                     vector=vec_list,
-                    data={"title": texts[start + i].split(":")[0].removeprefix("Title")},
+                    data={"title": titles[start + i]},
                 )
             )
 
@@ -311,7 +318,7 @@ def _sort_by_embedding(embeddings: list[list[float]]) -> list[int]:
 
     for _ in range(n - 1):
         sims = E @ E[order[-1]]
-        sims[visited] = -np.inf
+        sims[visited] = -float("inf")
         next_idx = int(np.argmax(sims))
         order.append(next_idx)
         visited[next_idx] = True
@@ -440,9 +447,21 @@ async def _rewrite_relationships(
     merge_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Rewrite relationship source/target using the merge map, remove self-loops, re-deduplicate."""
+    rows = []
+    async for row in relationships_table:
+        rows.append(dict(row))
+    return await _rewrite_relationship_rows(relationships_table, rows, merge_map)
+
+
+async def _rewrite_relationship_rows(
+    relationships_table: Table,
+    rows: list[dict[str, Any]],
+    merge_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Rewrite already-loaded relationship rows and write them back to the table."""
     seen: dict[tuple[str, str], dict[str, Any]] = {}
 
-    async for row in relationships_table:
+    for row in rows:
         source = merge_map.get(row.get("source", ""), row.get("source", ""))
         target = merge_map.get(row.get("target", ""), row.get("target", ""))
 
