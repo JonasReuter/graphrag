@@ -103,6 +103,10 @@ async def run_workflow(
             top_k=er_config.top_k,
             strategy=er_config.strategy,
             window_tokens=er_config.window_tokens,
+            auto_merge_threshold=er_config.auto_merge_threshold,
+            llm_review_threshold=er_config.llm_review_threshold,
+            max_llm_groups=er_config.max_llm_groups,
+            profile_neighbor_limit=er_config.profile_neighbor_limit,
         )
 
     contradictions_df = result.get("contradictions") if result else None
@@ -111,7 +115,7 @@ async def run_workflow(
             "contradictions", contradictions_df
         )
         logger.info(
-            "Workflow completed: resolve_entities — %d same_as contradiction(s) written",
+            "Workflow completed: resolve_entities - %d same_as contradiction(s) written",
             len(contradictions_df),
         )
     else:
