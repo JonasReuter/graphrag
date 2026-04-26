@@ -338,6 +338,8 @@ class GuidedArangoGraphRetriever:
         config: GuidedGraphRetrievalConfig,
     ) -> list[dict]:
         """Small-data fallback. Disabled by default to protect production latency."""
+        import math
+
         import numpy as np
 
         q = np.array(query_vector, dtype=float)
@@ -363,7 +365,7 @@ class GuidedArangoGraphRetriever:
             vector_score = float(np.dot(q, d) / (q_norm * d_norm))
             type_score = 0.5 if not entity_types else (1.0 if str(doc.get("type", "")).casefold() in entity_types else 0.25)
             degree = float(doc.get("rank") or 1)
-            hub_score = 1.0 / max(1.0, float(__import__("math").log(2 + max(degree, 1))))
+            hub_score = 1.0 / max(1.0, float(math.log(2 + max(degree, 1))))
             score = (
                 config.seed_vector_weight * vector_score
                 + config.seed_type_weight * type_score
@@ -537,17 +539,20 @@ class GuidedArangoGraphRetriever:
             return []
 
         aql = """
-            FOR entity_key IN @entity_keys
-                FOR community IN 1..1 OUTBOUND CONCAT("entities/", entity_key)
-                  GRAPH @graph
-                  OPTIONS {bfs: true}
-                  FILTER IS_SAME_COLLECTION("communities", community)
-                  FOR report IN community_reports
-                      FILTER report.community == community.community
-                      COLLECT report_id = report._id INTO grouped = report
-                      LET report_doc = FIRST(grouped)
-                      LIMIT @limit
-                      RETURN report_doc
+            LET reports = (
+                FOR entity_key IN @entity_keys
+                    FOR community IN 1..1 OUTBOUND CONCAT("entities/", entity_key)
+                      GRAPH @graph
+                      OPTIONS {bfs: true}
+                      FILTER IS_SAME_COLLECTION("communities", community)
+                      FOR report IN community_reports
+                          FILTER report.community == community.community
+                          COLLECT report_id = report._id INTO groups
+                          RETURN FIRST(groups[*].report)
+            )
+            FOR report IN reports
+                LIMIT @limit
+                RETURN report
         """
         try:
             cursor = self._db.aql.execute(
