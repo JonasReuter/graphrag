@@ -368,6 +368,17 @@ class GraphStoreDefaults:
     store_vectors: bool = True
     traversal_depth: int = 2
     top_k_seeds: int = 10
+    guided_retrieval_enabled: bool = True
+    guided_seed_k: int = 12
+    guided_max_depth: int = 3
+    guided_max_edges_per_node: int = 8
+    guided_max_expansions: int = 128
+    guided_max_frontier_size: int = 256
+    guided_max_results: int = 80
+    guided_min_path_score: float = 0.05
+    guided_depth_decay: float = 0.72
+    guided_community_report_limit: int = 8
+    guided_allow_vector_scan_fallback: bool = False
 
 
 @dataclass

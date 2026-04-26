@@ -3,6 +3,7 @@
 
 """GraphRAG vector store implementations."""
 
+from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
 from graphrag_vectors.filtering import (
     AndExpr,
     Condition,
@@ -11,6 +12,11 @@ from graphrag_vectors.filtering import (
     NotExpr,
     Operator,
     OrExpr,
+)
+from graphrag_vectors.guided_graph_retrieval import (
+    GuidedArangoGraphRetriever,
+    GuidedGraphRetrievalConfig,
+    QueryGraphPlan,
 )
 from graphrag_vectors.index_schema import IndexSchema
 from graphrag_vectors.timestamp import explode_timestamp
@@ -27,7 +33,6 @@ from graphrag_vectors.vector_store_factory import (
     register_vector_store,
     vector_store_factory,
 )
-from graphrag_vectors.arangodb_graph import ArangoDBGraphStore
 from graphrag_vectors.vector_store_type import VectorStoreType
 
 __all__ = [
@@ -36,10 +41,13 @@ __all__ = [
     "Condition",
     "F",
     "FilterExpr",
+    "GuidedArangoGraphRetriever",
+    "GuidedGraphRetrievalConfig",
     "IndexSchema",
     "NotExpr",
     "Operator",
     "OrExpr",
+    "QueryGraphPlan",
     "TextEmbedder",
     "VectorStore",
     "VectorStoreConfig",
