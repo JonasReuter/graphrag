@@ -344,6 +344,10 @@ class EntityResolutionDefaults:
     top_k: int = 10
     window_tokens: int = 100_000
     prompt: None = None
+    auto_merge_threshold: float = 0.95
+    llm_review_threshold: float = 0.82
+    max_llm_groups: int = 5000
+    profile_neighbor_limit: int = 30
 
 
 @dataclass
