@@ -3,7 +3,7 @@
 
 """Graph-aware ANN candidate scoring for entity resolution.
 
-This module intentionally avoids maintained alias/stop-word lists. It uses
+This module intentionally avoids maintained alias or stop-word lists. It uses
 entity profile embeddings for blocking and cheap local scores for deciding
 whether a candidate pair is safe to merge automatically or should be reviewed
 by the LLM.
@@ -206,7 +206,7 @@ def _score_ann_candidate_pairs(
 ) -> list[ScoredPair]:
     pairs: dict[tuple[int, int], ScoredPair] = {}
 
-    for i, (entity, vector) in enumerate(zip(all_entities, embeddings, strict=True)):
+    for i, vector in enumerate(embeddings):
         if not vector:
             continue
         results = vector_store.similarity_search_by_vector(
@@ -224,8 +224,10 @@ def _score_ann_candidate_pairs(
 
             lo, hi = (i, j) if i < j else (j, i)
             scored = _score_pair(
-                all_entities[lo],
-                all_entities[hi],
+                left_idx=lo,
+                right_idx=hi,
+                left=all_entities[lo],
+                right=all_entities[hi],
                 embedding_score=float(result.score),
                 contexts=contexts,
             )
@@ -237,9 +239,11 @@ def _score_ann_candidate_pairs(
 
 
 def _score_pair(
+    *,
+    left_idx: int,
+    right_idx: int,
     left: dict[str, Any],
     right: dict[str, Any],
-    *,
     embedding_score: float,
     contexts: dict[str, EntityContext],
 ) -> ScoredPair:
@@ -257,8 +261,8 @@ def _score_pair(
         + 0.10 * type_score
     )
     return ScoredPair(
-        left_idx=-1,
-        right_idx=-1,
+        left_idx=left_idx,
+        right_idx=right_idx,
         score=score,
         embedding_score=embedding_score,
         title_score=title_score,
@@ -356,8 +360,7 @@ def _merge_map_from_pairs(
     return merge_map
 
 
-def _choose_canonical(
-    group_indices: list[int], all_entities: list[dict[str, Any]]) -> str:
+def _choose_canonical(group_indices: list[int], all_entities: list[dict[str, Any]]) -> str:
     """Choose the most informative title without relying on a curated alias list."""
 
     def score(idx: int) -> tuple[float, int, int, str]:
@@ -376,7 +379,8 @@ def _choose_canonical(
             title,
         )
 
-    return max(group_indices, key=score) |> lambda idx: all_entities[idx]["title"]
+    canonical_idx = max(group_indices, key=score)
+    return all_entities[canonical_idx]["title"]
 
 
 def _description_with_context(
